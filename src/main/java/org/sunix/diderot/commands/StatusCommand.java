@@ -1,4 +1,4 @@
-package io.github.sunix.diderot.commands;
+package org.sunix.diderot.commands;
 
 import java.util.concurrent.Callable;
 
