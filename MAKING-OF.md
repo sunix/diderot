@@ -45,12 +45,22 @@ Claude's recommendation was unambiguous: Go. `oras-go` is *the* reference OCI-ar
 library (Helm and the `oras` CLI itself are built on it), sigstore tooling is Go-native,
 and every potential contributor in that ecosystem already speaks it.
 
-I chose Java with Quarkus anyway, eyes open. It's my turf — jdtls-mcp and Erasmus are
-Java — and GraalVM native-image gives the same single-binary distribution story. The
-acknowledged risk: [oras-java](https://github.com/oras-project/oras-java) is the official
-ORAS SDK but still *incubating*, so I'm probably signing up for upstream contributions
-along the way. That's how jdtls-mcp went with the MCP Java SDK, and honestly, filing real
-issues against a young SDK is half the fun.
+I chose Java with Quarkus anyway, and it's not stubbornness — it's twenty years of it
+([the CV](https://blog.sunix.org/cv/)). I've been part of the [Paris JUG](https://www.parisjug.org/)
+crew since 2015 and led it from 2019 to 2023, and most of my open source work has been
+Java in exactly this problem space: the
+[Fabric8 Kubernetes Java client](https://github.com/fabric8io/kubernetes-client) and
+[Eclipse JKube](https://github.com/eclipse-jkube/jkube) at Red Hat — Java talking to
+container registries and cloud-native APIs, which is precisely what "the OCI ecosystem
+speaks Go" is supposed to rule out — plus Eclipse Che and Nuxeo before that. More
+recently jdtls-mcp and Erasmus (too new to have made the CV yet). GraalVM native-image
+closes the distribution gap: same single static binary as Go, and Quarkus makes that
+path boring.
+
+The acknowledged risk stands: [oras-java](https://github.com/oras-project/oras-java) is
+the official ORAS SDK but still *incubating*, so I'm probably signing up for upstream
+contributions along the way. That's how jdtls-mcp went with the MCP Java SDK, and
+honestly, filing real issues against a young SDK is half the fun.
 
 ## Stealing Helm's homework
 
