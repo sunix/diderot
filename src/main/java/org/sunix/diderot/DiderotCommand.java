@@ -1,9 +1,9 @@
-package io.github.sunix.diderot;
+package org.sunix.diderot;
 
-import io.github.sunix.diderot.commands.InstallCommand;
-import io.github.sunix.diderot.commands.PushCommand;
-import io.github.sunix.diderot.commands.StatusCommand;
-import io.github.sunix.diderot.commands.UpdateCommand;
+import org.sunix.diderot.commands.InstallCommand;
+import org.sunix.diderot.commands.PushCommand;
+import org.sunix.diderot.commands.StatusCommand;
+import org.sunix.diderot.commands.UpdateCommand;
 import io.quarkus.picocli.runtime.annotations.TopCommand;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
