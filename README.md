@@ -4,30 +4,50 @@
 
 Named after Diderot's *Encyclopédie* — the "Dictionnaire raisonné des sciences, des arts et **des métiers**": a registry of skills, meant to be distributed.
 
-> ⚠️ **Early development.** The command skeleton exists; nothing is implemented yet. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
+> ⚠️ **Early development.** Git sources work end to end (`update` / `install` / `status`); OCI and signing are next. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
 
 ## Why
 
 [Agent Skills](https://agentskills.my/specification/) (`SKILL.md` folders) are portable across 30+ AI coding tools, and git-based installers already exist (`gh skill`, `npx skills`, Claude Code plugin marketplaces). What none of them offer:
 
 - **OCI registry distribution** — push skills to the registries enterprises already run (ghcr.io, Harbor, Artifactory, ECR), with their auth, replication, and air-gap story.
-- **Content-digest lockfiles** — tags move; digests don't. Two repos sharing a `diderot.lock` get the same bytes.
+- **Content-digest lockfiles** — tags move; digests don't. Two repos sharing a `diderot.lock` get the same bytes — including the throwaway workspace a remote coding agent spins up from a fresh clone.
 - **Signing** — cosign signatures verified at lock and install time.
 
-## How it will work
+## How it works
 
 Declare skills in `diderot.yaml`:
 
 ```yaml
 skills:
   - name: making-of
-    source: oci://ghcr.io/sunix/skills/making-of
-    version: "^1.0.0"
+    source: git+https://github.com/sunix/ai-skills#skills/documentation/making-of
+    version: main            # branch, tag, or commit
   - name: release-please
-    source: git+https://github.com/sunix/ai-skills#skills/github-actions/release-please
-    version: "main"
-targets: [claude]
+    source: oci://ghcr.io/sunix/skills/release-please   # milestone M2
+    version: "^1.0.0"
+targets: [claude]            # agent layouts: claude (.claude/skills), agents (.agents/skills)
 ```
+
+`diderot update` resolves each constraint to a commit and records a **content digest** — the git
+tree SHA of the skill directory — in `diderot.lock`:
+
+```yaml
+lockfileVersion: 1
+skills:
+- name: making-of
+  source: git+https://github.com/sunix/ai-skills#skills/documentation/making-of
+  resolved: 64358bc5644155d4513bf17e421119fc6eec9127
+  digest: tree:0f755a27d65b67d80d6d1ee2ed0d8a7963fa8f23
+```
+
+`diderot install` extracts exactly those bytes into the agent directories and verifies the digest
+of what landed on disk (diderot re-computes git tree SHAs in pure Java, no `.git` needed).
+There is **no transformation step**: skills are already in the format agents read (`SKILL.md`
+folders), so install materializes the locked tree byte for byte — which is precisely what makes
+digest verification possible.
+`diderot status` uses the same hashing to report `ok` / `DRIFTED` / `MISSING` per skill —
+re-running `install` repairs drift. Git sources require the `git` binary on the PATH.
 
 Then, Helm-style:
 
@@ -40,7 +60,7 @@ Then, Helm-style:
 
 ## Roadmap
 
-- **M1** — `update` / `install` / `status` over git sources (pin by tree SHA), standard Agent Skills layout (`.claude/skills/`).
+- **M1** ✅ — `update` / `install` / `status` over git sources (pin by tree SHA), standard Agent Skills layout (`.claude/skills/`).
 - **M2** — OCI backend via [oras-java](https://github.com/oras-project/oras-java): `push`, `oci://` sources, pin by OCI digest; cosign verification via sigstore-java.
 - **M3** — distribution: native binaries per platform (GraalVM), one-line `curl | bash` installer, JBang catalog (`jbang diderot@sunix`).
 - **Later** — additional `--target` layouts for tools that diverge from the standard directory convention.

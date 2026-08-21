@@ -1,29 +1,45 @@
 package org.sunix.diderot.commands;
 
+import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Callable;
 
+import org.sunix.diderot.core.Workspace;
+import org.sunix.diderot.git.GitCli;
+
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.Spec;
 
 @Command(name = "install", mixinStandardHelpOptions = true,
         description = "Install skills exactly as pinned (by content digest) in diderot.lock. Reproducible: no resolution "
                 + "happens here. The Helm equivalent is `helm dependency build`.")
 public class InstallCommand implements Callable<Integer> {
 
-    @Option(names = { "-f", "--manifest" }, defaultValue = "diderot.yaml",
-            description = "Path to the manifest (default: ${DEFAULT-VALUE}).")
-    Path manifest;
+    @Option(names = { "-C", "--directory" }, defaultValue = ".",
+            description = "Project root containing diderot.lock (default: current directory).")
+    Path directory;
 
     @Option(names = "--target",
-            description = "Agent layout(s) to install into (e.g. claude). Repeatable. Defaults to the manifest's "
-                    + "targets. v1 supports the standard Agent Skills layout; more layouts are planned.")
+            description = "Agent layout(s) to install into (claude, agents). Repeatable. Defaults to the manifest's "
+                    + "targets.")
     List<String> targets;
+
+    @Spec
+    CommandSpec spec;
 
     @Override
     public Integer call() {
-        System.err.println("diderot install: not implemented yet (milestone M1 — git sources first).");
-        return 1;
+        PrintWriter out = spec.commandLine().getOut();
+        try {
+            new Workspace(directory.toAbsolutePath().normalize(), new GitCli(GitCli.defaultCacheRoot()), out)
+                    .install(targets);
+            return 0;
+        } catch (Exception e) {
+            spec.commandLine().getErr().println("error: " + e.getMessage());
+            return 1;
+        }
     }
 }
