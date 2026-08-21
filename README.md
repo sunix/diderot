@@ -83,3 +83,7 @@ Dev mode: `./mvnw quarkus:dev` (Quarkus + picocli; see the [Quarkus picocli guid
 ## Contributing
 
 Commits and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/) — releases are automated with release-please. See [AGENT.md](AGENT.md).
+
+## License
+
+[Apache-2.0](LICENSE).
