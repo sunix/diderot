@@ -4,7 +4,7 @@
 
 Named after Diderot's *Encyclopédie* — the "Dictionnaire raisonné des sciences, des arts et **des métiers**": a registry of skills, meant to be distributed.
 
-> ⚠️ **Early development.** Git and OCI registry sources work end to end (`push` / `update` / `install` / `status`); signing is next. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
+> ⚠️ **Early development.** Git and OCI registry sources work end to end (`push` / `update` / `install` / `status`), and every OCI push is signed and verified (keyless, via sigstore). Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
 
 ## Why
 
@@ -12,7 +12,7 @@ Named after Diderot's *Encyclopédie* — the "Dictionnaire raisonné des scienc
 
 - **OCI registry distribution** — push skills to the registries enterprises already run (ghcr.io, Harbor, Artifactory, ECR), with their auth, replication, and air-gap story.
 - **Content-digest lockfiles** — tags move; digests don't. Two repos sharing a `diderot.lock` get the same bytes — including the throwaway workspace a remote coding agent spins up from a fresh clone.
-- **Signing** — cosign signatures verified at lock and install time.
+- **Signing** — keyless (sigstore) signatures verified at lock and install time.
 
 ## How it works
 
@@ -59,8 +59,19 @@ diderot push skills/documentation/making-of oci://ghcr.io/sunix/skills/making-of
 ```
 
 Skills travel as OCI artifacts (`artifactType: application/vnd.diderot.skill.v1`, one
-tar+gzip layer), so they land in any OCI-conformant registry: ghcr.io, Harbor,
-Artifactory, ECR, or a plain `registry:2`.
+tar+gzip layer), so they land in any OCI-conformant registry that supports the OCI 1.1
+Referrers API (ghcr.io, Harbor, Artifactory, ECR, zot — plain `docker/distribution`
+`registry:2`, and `registry:3` with its default config, do not).
+
+**Every push is signed, every first pull is verified — no flag to skip either.** `push`
+signs the manifest digest keylessly (via [sigstore](https://www.sigstore.dev/), no key
+pairs to manage) and attaches the signature bundle as an OCI referrer; the first time
+`update`/`install` pulls a given digest, it fetches that bundle and verifies it before
+trusting the content, refusing an artifact with no signature or a signature for a
+different digest. Signing needs an identity: on your own machine, the first push opens a
+browser for sigstore's keyless OIDC flow (the same as `cosign`'s default); in CI, set
+`SIGSTORE_JAVA_ID_TOKEN` or run under GitHub Actions with `id-token: write`, which
+sigstore-java picks up automatically.
 
 Then, Helm-style:
 
@@ -75,7 +86,8 @@ Then, Helm-style:
 
 - **M1** ✅ — `update` / `install` / `status` over git sources (pin by tree SHA), standard Agent Skills layout (`.claude/skills/`).
 - **M2** ✅ — OCI backend via [oras-java](https://github.com/oras-project/oras-java): `push`, `oci://` sources, pin by manifest digest.
-- **M2b** — signing: cosign signatures attached via the referrers API, verified at lock and install time; semver ranges over registry tags.
+- **M2b** ✅ — keyless signing via [sigstore-java](https://github.com/sigstore/sigstore-java): every push signed, every first pull verified, fail closed.
+- **M2c** — semver ranges over registry tags; a `--frozen`/welcoming `install` (still under DX reflection).
 - **M3** — distribution: native binaries per platform (GraalVM), one-line `curl | bash` installer, JBang catalog (`jbang diderot@sunix`).
 - **Later** — additional `--target` layouts for tools that diverge from the standard directory convention.
 

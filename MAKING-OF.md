@@ -5,7 +5,7 @@ and the implementation work — kept here for new contributors, or anyone curiou
 together. Written in a blog-ish style rather than as formal docs, split into one post per
 chapter so each stays a readable size. Updated on request as the work progresses.*
 
-*Last updated: 2026-08-22.*
+*Last updated: 2026-08-22 (signing landed).*
 
 ## Posts
 
@@ -18,3 +18,8 @@ chapter so each stays a readable size. Updated on request as the work progresses
    JKube detour, `diderot push` as an OCI artifact via the ORAS Java SDK, digest-pinned
    `oci://` sources, and the tree digest that came back identical after a trip through a
    registry.
+3. [Sign at push, verify at pull](doc/making-of/03-keyless-signing.md) — no key pairs, keyless
+   signing via sigstore; the registry that quietly didn't support what it was supposed to;
+   the "untrusted testing token" sigstore itself publishes so real signing tests don't need a
+   browser; and the one honest gap — the real production flow needs a human with a browser,
+   which I don't have from here.
