@@ -56,7 +56,8 @@ class WorkspaceEndToEndTest {
                 """.formatted(upstream));
 
         output = new StringWriter();
-        workspace = new Workspace(project, new GitCli(tmp.resolve("cache")), new PrintWriter(output, true));
+        workspace = new Workspace(project, new GitCli(tmp.resolve("cache")),
+                new org.sunix.diderot.oci.OrasClient(tmp.resolve("oci-cache")), new PrintWriter(output, true));
     }
 
     @Test
