@@ -4,7 +4,7 @@
 
 Named after Diderot's *Encyclopédie* — the "Dictionnaire raisonné des sciences, des arts et **des métiers**": a registry of skills, meant to be distributed.
 
-> ⚠️ **Early development.** Git sources work end to end (`update` / `install` / `status`); OCI and signing are next. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
+> ⚠️ **Early development.** Git and OCI registry sources work end to end (`push` / `update` / `install` / `status`); signing is next. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
 
 ## Why
 
@@ -24,8 +24,8 @@ skills:
     source: git+https://github.com/sunix/ai-skills#skills/documentation/making-of
     version: main            # branch, tag, or commit
   - name: release-please
-    source: oci://ghcr.io/sunix/skills/release-please   # milestone M2
-    version: "^1.0.0"
+    source: oci://ghcr.io/sunix/skills/release-please   # an OCI registry
+    version: v1                                         # exact tag (semver ranges: planned)
 targets: [claude]            # agent layouts: claude (.claude/skills), agents (.agents/skills)
 ```
 
@@ -49,6 +49,19 @@ digest verification possible.
 `diderot status` uses the same hashing to report `ok` / `DRIFTED` / `MISSING` per skill —
 re-running `install` repairs drift. Git sources require the `git` binary on the PATH.
 
+For OCI sources, `update` resolves the tag to a **manifest digest** and pins that in
+`resolved`; the `digest` line stays a git tree SHA of the content, so verification is
+identical whatever the source. Publishing is one command (auth comes from your existing
+`docker login` credentials):
+
+```bash
+diderot push skills/documentation/making-of oci://ghcr.io/sunix/skills/making-of:v1
+```
+
+Skills travel as OCI artifacts (`artifactType: application/vnd.diderot.skill.v1`, one
+tar+gzip layer), so they land in any OCI-conformant registry: ghcr.io, Harbor,
+Artifactory, ECR, or a plain `registry:2`.
+
 Then, Helm-style:
 
 | Command | Helm equivalent | Effect |
@@ -61,7 +74,8 @@ Then, Helm-style:
 ## Roadmap
 
 - **M1** ✅ — `update` / `install` / `status` over git sources (pin by tree SHA), standard Agent Skills layout (`.claude/skills/`).
-- **M2** — OCI backend via [oras-java](https://github.com/oras-project/oras-java): `push`, `oci://` sources, pin by OCI digest; cosign verification via sigstore-java.
+- **M2** ✅ — OCI backend via [oras-java](https://github.com/oras-project/oras-java): `push`, `oci://` sources, pin by manifest digest.
+- **M2b** — signing: cosign signatures attached via the referrers API, verified at lock and install time; semver ranges over registry tags.
 - **M3** — distribution: native binaries per platform (GraalVM), one-line `curl | bash` installer, JBang catalog (`jbang diderot@sunix`).
 - **Later** — additional `--target` layouts for tools that diverge from the standard directory convention.
 
