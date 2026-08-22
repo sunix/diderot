@@ -272,5 +272,6 @@ build.
 Two honest gaps remain. Tags resolve exactly (`version: v1` means the tag `v1`) — semver
 ranges like `^1.0.0` over registry tags are not implemented yet. And the ORAS SDK is
 still alpha — this time it cost nothing but one noisy WARN log to silence, but the bet
-from part one stands. Signing was in fact built and fully tested next — and then
-deliberately not merged; [chapter three](03-considering-signing.md) is the record of why.
+from part one stands. Signing did in fact get built next, and proven — and then
+deliberately held back for a later milestone rather than merged;
+[chapter three](03-considering-signing.md) is the record of why.
