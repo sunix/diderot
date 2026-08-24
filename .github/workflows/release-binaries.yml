@@ -29,7 +29,11 @@ jobs:
             asset: linux-x86_64
           - runner: ubuntu-24.04-arm
             asset: linux-aarch64
-          - runner: macos-13
+          # macos-13 was retired in December 2025; macos-15-intel is the replacement
+          # for x86_64 and the last Intel image GitHub plans to offer (until Aug 2027,
+          # Apple having dropped the architecture). A retired label doesn't fail — the
+          # job sits in `queued` forever, which is how this was found.
+          - runner: macos-15-intel
             asset: darwin-x86_64
           - runner: macos-latest
             asset: darwin-aarch64
