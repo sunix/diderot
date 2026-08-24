@@ -1,7 +1,10 @@
 # One line to install it
 
 *Part three of [diderot's making-of](../../MAKING-OF.md): the milestone where diderot
-stops being a thing you compile and becomes a thing you install.*
+stops being a thing you compile and becomes a thing you install. The packaging itself
+landed in [PR #9](https://github.com/sunix/diderot/pull/9) (branch
+`feat/m3-packaging`); the release that followed took three more attempts, and the second
+half of this chapter is why.*
 
 ## The goal: stop telling people to build it
 
@@ -257,6 +260,54 @@ public String[] getVersion() {
 
 and now `--version` agrees with the pom, verified on a real jar *and* on the native
 binary. A packaging milestone earning its keep before it has even published anything.
+
+## Then the release refused to happen
+
+With all of that merged, cutting `v0.1.0` should have been a formality. Instead it took
+three tries, and the first problem had been sitting there for days.
+
+I went looking for the Release PR release-please was supposed to have opened, and there
+wasn't one. There never had been. That workflow had failed on **every single push to
+`main` since M1** — five consecutive red runs, and nobody had thought to look, because
+nothing downstream depended on it yet. The error was not in our configuration:
+
+```text
+release-please failed: GitHub Actions is not permitted to create or approve pull requests.
+```
+
+A repository setting, off by default (Settings → Actions → General → Workflow
+permissions). release-please had done everything right — parsed sixteen commits, computed
+a version, generated a CHANGELOG, even created and pushed its own
+`release-please--branches--main` branch with the bump commit — and then hit a wall on the
+final API call. The lesson isn't about that checkbox: it's that **a workflow nothing
+depends on yet will fail silently for as long as you let it.** Five runs is five chances
+to notice.
+
+Second try: with the setting on, release-please immediately proposed `1.0.0`. Which is
+technically what the pom said — `1.0.0-SNAPSHOT`, straight from the Quarkus scaffold,
+untouched since the walking skeleton — but a wildly inappropriate number for something
+whose README says "early development", whose command surface is about to grow `add` and
+`remove`, and whose signing story is explicitly postponed. `1.0.0` is a promise about API
+stability. So the pom went to `0.1.0-SNAPSHOT`.
+
+Third try, and this is the part where I was simply wrong: I had asserted, in that very
+pull request, that release-please would now recompute `0.1.0`. It didn't. It rebased onto
+the new pom and proposed `1.0.0` again, because a **first** release bootstraps at `1.0.0`
+regardless of what the pom holds — the pom only drives subsequent bumps. The documented
+way out is a footer in the squash-merge commit body:
+
+```text
+Release-As: 0.1.0
+```
+
+which finally produced `chore(main): release 0.1.0`. I'd stated the behaviour without
+checking it, and the tool corrected me — worth writing down precisely because it's the
+sort of confident-and-wrong claim that costs someone else an afternoon.
+
+All three traps now live in [`AGENT.md`](../../AGENT.md) as an actual procedure, next to
+the fourth one we already knew about: the binaries workflow needs a manual dispatch,
+because a Release created with the default `GITHUB_TOKEN` cannot trigger
+`on: release: published`.
 
 ## What this chapter leaves open
 
