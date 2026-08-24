@@ -4,7 +4,7 @@
 
 Named after Diderot's *Encyclopédie* — the "Dictionnaire raisonné des sciences, des arts et **des métiers**": a registry of skills, meant to be distributed.
 
-> ⚠️ **Early development, but usable.** Git and OCI registry sources work end to end (`push` / `update` / `install` / `status`), and there's a real install path — no compiling required (see below). Signature verification is built but held back so this MVP could ship first. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
+> ⚠️ **Early development, but usable.** `v0.1.0` is out: git and OCI registry sources work end to end (`push` / `update` / `install` / `status`), installable in one line — no compiling required (see below). Signature verification is built but held back so this MVP could ship first. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
 
 ## Why
 
@@ -73,8 +73,8 @@ Then, Helm-style:
 
 ## Install
 
-Once a release is published, one line is enough — it picks the binary for your platform,
-verifies its SHA-256 checksum, and refuses to install anything that doesn't match:
+One line, and it picks the binary for your platform, verifies its SHA-256 checksum, and
+refuses to install anything that doesn't match:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sunix/diderot/main/install.sh | sh
@@ -84,11 +84,23 @@ Installs to `~/.local/bin` by default; override with `DIDEROT_INSTALL_DIR`, and 
 version with `DIDEROT_VERSION=v0.1.0`. Native binaries are published for Linux and macOS
 (x86_64 and aarch64) and Windows (x86_64).
 
-Already have [JBang](https://www.jbang.dev/)? No install step at all:
+Already have [JBang](https://www.jbang.dev/)? It can install `diderot` as a real command,
+resolving the catalog and the release jar for you — no download step, and it picks a
+suitable JDK if yours is older than 21:
 
 ```bash
-jbang diderot@sunix/diderot --help
+jbang app install diderot@sunix
+diderot --help
 ```
+
+Or run it without installing anything at all:
+
+```bash
+jbang diderot@sunix --help
+```
+
+(Both resolve [`sunix/jbang-catalog`](https://github.com/sunix/jbang-catalog);
+`diderot@sunix/diderot` works too, reading this repository's own `jbang-catalog.json`.)
 
 Or grab a binary by hand from the [releases
 page](https://github.com/sunix/diderot/releases) — every asset ships a `.sha256`
