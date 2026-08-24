@@ -46,16 +46,19 @@ arbitrary artifacts with a custom type. For ORAS-style artifacts the purpose-bui
 [oras-java](https://github.com/oras-project/oras-java) — alpha, as accepted back in part
 one — and diderot, like the jib path, will never have a daemon dependency.
 
-## What landed
+## One new class, if you want to follow along
 
-The dependency is `io.quarkiverse.oras:quarkus-oras` 0.6.4, the Quarkiverse extension
-wrapping ORAS Java SDK 0.8.3 — the extension buys the native-image configuration we'll
-want for the distribution milestone. On top of it, one new class:
-`oci/OrasClient.java`, the registry twin of `GitCli` — the second and only other class
-allowed to touch the outside world.
+There's really only one new file worth opening: `oci/OrasClient.java`. Everything else in
+this milestone is a line or two somewhere existing. It's the registry's counterpart to
+`GitCli` from part one — the second, and still only other, class in diderot allowed to
+talk to anything outside the process.
 
-Its `push` is small because the SDK does the packaging (a directory travels as one
-tar+gzip layer, flagged for auto-unpack on pull):
+Behind it sits `io.quarkiverse.oras:quarkus-oras` 0.6.4, the Quarkiverse extension around
+ORAS Java SDK 0.8.3. The SDK alone would have done the job; the extension earns its place
+by shipping the native-image configuration I'll want the day this becomes a binary.
+
+Start with `push`, which is shorter than you'd expect, because the SDK does the packing —
+a directory becomes one tar+gzip layer, flagged so that pulling it unpacks it again:
 
 ```java
 Manifest manifest = registryFor(reference).pushArtifact(
@@ -66,11 +69,14 @@ Manifest manifest = registryFor(reference).pushArtifact(
 return manifest.getDescriptor().getDigest();
 ```
 
-Two things worth noticing: skills get their own `artifactType`, so a registry browser can
-tell a diderot skill from a Helm chart; and the manifest carries the directory's git-tree
-digest as an annotation — provenance stamped at push time.
+Two things in there are deliberate. That `ArtifactType` gives skills a media type of
+their own, so anyone browsing a registry can tell a diderot skill from a Helm chart
+sitting in the same namespace. And the annotation smuggles the directory's git-tree digest
+into the manifest itself — provenance stamped at the moment of publication, readable
+afterwards without downloading the content.
 
-Pulls are digest-addressed and cached once, forever:
+Now the other direction, `cachedPull`, and the interesting part is what it *doesn't*
+have:
 
 ```java
 Path slot = cacheRoot.resolve(digest.replace(':', '-'));   // ~/.cache/diderot/oci/sha256-...
@@ -80,15 +86,21 @@ if (!Files.isDirectory(content)) {
 }
 ```
 
-A directory named by a digest can never go stale, so there is nothing to invalidate — the
-atomic move just guards against a torn download. Auth rides on what the SDK gives us:
-`Registry.builder().defaults()` reads `~/.docker/config.json` (plain HTTP only for
-localhost registries, which the tests use).
+No expiry, no invalidation, no "is this still current?" — because the cache key *is* the
+digest. A directory named `sha256-94e346…` either holds exactly those bytes or doesn't
+exist yet; it cannot go stale, so there is nothing to ever invalidate. The one real hazard
+left is a download dying halfway, which is what the atomic move is for: the content
+appears under its final name complete, or it doesn't appear at all.
 
-In `Workspace`, resolution grew a second branch. The git path was untouched; the OCI path
-resolves the tag to a manifest digest, pulls once into the cache, gates on `SKILL.md`,
-and — the important line — hashes the pulled content with the same `GitTreeHasher` as
-everything else:
+Authentication is the part I'm happiest not to have written. `Registry.builder().defaults()`
+reads `~/.docker/config.json`, so if you can already `docker push` to a registry, diderot
+can too — credential helpers, tokens and all, none of it my problem. (Localhost
+registries get plain HTTP, which is what the tests use.)
+
+That leaves `Workspace`, where I'd expected the real work to be, and where there turned
+out to be almost none. Resolution grew a second branch and the git path didn't move at
+all. The OCI branch turns a tag into a manifest digest, pulls once into that cache, checks
+there's actually a `SKILL.md` inside, and then does the thing the whole design rests on:
 
 ```java
 String digest = oci.resolveDigest(ref.url() + ":" + tag);   // tag -> sha256:..., no download
@@ -97,17 +109,20 @@ locked.resolved = digest;                                   // the pin
 locked.digest = "tree:" + GitTreeHasher.treeSha(content);   // the same digest language as git
 ```
 
-That last line is the design paying off: `install` and `status` did not change *at all*
-for OCI sources. They compare disk against `tree:...` and never ask where the bytes came
-from.
+Look at that last line. The pulled content gets hashed by the very same `GitTreeHasher`
+part one wrote for git trees. Which is why `install` and `status` needed **no** changes
+whatsoever for OCI sources: they compare what's on disk against a `tree:…` string, and
+never learn — or need to care — where those bytes originally came from.
 
 ## Proof
 
-The integration test runs against a real registry, not a mock. `registry:2` is the
-official reference Docker/OCI registry image — the same software that runs Docker Hub
-and ghcr.io — and the test starts one itself: a real, local, disposable container on a
-free port bound to `127.0.0.1` only, so nothing is exposed to the network, torn down at
-the end of the run:
+The integration test runs against a real registry, not a mock — and it brings its own.
+[`registry:2`](https://hub.docker.com/_/registry) is the Docker official image for the
+[distribution](https://github.com/distribution/distribution) project — the reference
+implementation of the OCI Distribution spec, described on Docker Hub as the
+*"Distribution implementation for storing and distributing of container images and
+artifacts"*, and the same software behind Docker Hub and ghcr.io. So these four lines are
+the entire fixture:
 
 ```java
 containerId = Git.run(Path.of("."), "docker", "run", "-d", "--rm",
@@ -116,11 +131,12 @@ String portLine = Git.run(Path.of("."), "docker", "port", containerId, "5000/tcp
 registryHostPort = portLine.lines().findFirst().orElseThrow(); // e.g. 127.0.0.1:32768
 ```
 
-(No Docker daemon on the machine running the tests → the test skips itself via
-`assumeTrue`, rather than failing.)
+A disposable container on a free port bound to `127.0.0.1` only — nothing exposed to the
+network, torn down at the end of the run, and if there's no Docker daemon on the machine
+the test skips itself via `assumeTrue` rather than failing.
 
-Against that live registry, the central assertion is the identity that makes the
-lockfile trustworthy:
+Against that live registry, here is the assertion everything else rests on. Read the last
+two lines together:
 
 ```java
 String sourceTreeDigest = "tree:" + GitTreeHasher.treeSha(skillDir);
@@ -166,14 +182,18 @@ $ git -C ai-skills rev-parse HEAD:skills/documentation/making-of
 ```
 
 Character for character the `tree:` digest in the lockfile — computed from bytes that
-went disk → tar.gz → registry → pull → extraction. Two unrelated pipelines, one digest:
-the lock really is source-agnostic.
+went disk → tar.gz → registry → pull → extraction. Two unrelated pipelines, one digest.
+
+Which is the point: that `digest:` line is identical whether the skill arrived through a
+`git+…` source or an `oci://` one. Same `tree:` prefix, same forty hex characters, for the
+same content. The lockfile records *what* a skill is, never *where it came from* — and
+that is exactly why `install` and `status` never had to learn the difference.
 
 ## Closing the loop for real: a GitHub Action, and a stranger's pull in erasmus
 
 Everything above ran on my machine, against ttl.sh or a container I started myself. The
-goal for closing this chapter properly: someone else's project, pulling from a registry
-neither of us controls, published by a CI job instead of my laptop — the actual shape of
+goal for closing this chapter properly: a different project, pulling from a registry I
+don't run myself, published by a CI job instead of my laptop — the actual shape of
 "push a skill, anyone installs it."
 
 [ai-skills](https://github.com/sunix/ai-skills) got a small `workflow_dispatch` GitHub
@@ -272,5 +292,9 @@ build.
 Two honest gaps remain. Tags resolve exactly (`version: v1` means the tag `v1`) — semver
 ranges like `^1.0.0` over registry tags are not implemented yet. And the ORAS SDK is
 still alpha — this time it cost nothing but one noisy WARN log to silence, but the bet
-from part one stands. Signing was in fact built and fully tested next — and then
-deliberately not merged; [chapter three](03-considering-signing.md) is the record of why.
+from part one stands. Signing did in fact get built next, and proven against sigstore's
+staging instance — then deliberately held back rather than merged, so this MVP could ship
+first. The short version of why is in
+[the next chapter](03-packaging-and-install.md#signing-waits); the code and its tests sit
+on [PR #6](https://github.com/sunix/diderot/pull/6), with the longer write-up still open
+as [PR #7](https://github.com/sunix/diderot/pull/7).

@@ -60,7 +60,7 @@ diderot push skills/documentation/making-of oci://ghcr.io/sunix/skills/making-of
 
 Skills travel as OCI artifacts (`artifactType: application/vnd.diderot.skill.v1`, one
 tar+gzip layer), so they land in any OCI-conformant registry: ghcr.io, Harbor,
-Artifactory, ECR, or a plain `registry:2`.
+Artifactory, ECR, or a plain [`registry:2`](https://hub.docker.com/_/registry).
 
 Then, Helm-style:
 

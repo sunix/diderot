@@ -6,12 +6,18 @@ landed in [PR #9](https://github.com/sunix/diderot/pull/9) (branch
 `feat/m3-packaging`); the release that followed took three more attempts, and the second
 half of this chapter is why.*
 
-## The goal: stop telling people to build it
+## The goal: you shouldn't need a JDK to try this
 
-Every proof in the previous two chapters ended with the same embarrassing footnote —
-each step rebuilt diderot from Java sources, because there was nothing to download.
-That's fine for the person writing it and useless for anybody else. The target for this
-chapter is exactly one line working on a machine that has never seen this project:
+Suppose you want to try diderot. Until this milestone the answer was: do you have Java
+21? And Maven, or at least trust in a wrapper script? Good — now clone the repository,
+build it, find the jar, and type `java -jar path/to/it` before every command you were
+going to run. If any of that annoyed you, you'd have stopped, and you'd have been right
+to.
+
+The previous two chapters never noticed, because I already had all of it
+installed; every proof in them rebuilt from source for want of anything to download. This
+chapter fixes what you'd have hit first — one line, on a machine that has never seen this
+project:
 
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/sunix/diderot/main/install.sh | sh
@@ -24,7 +30,7 @@ No JDK, no Maven, no clone. And for the Java crowd who already have
 [JBang](https://www.jbang.dev/), not even an install:
 
 ```console
-$ jbang diderot@sunix/diderot --help
+$ jbang diderot@sunix --help
 ```
 
 ## Signing waits
@@ -79,8 +85,8 @@ It lives in CI for the obvious reason: release artefacts get built from the push
 by a machine nobody has touched. Hand-building them on a laptop risks shipping whatever
 was edited locally and never committed — and nobody can reproduce the result afterwards.
 (It also happens that `native-image` wants several gigabytes of RAM — 4.14GB peak, as
-the build log further down shows — against roughly one available where this was written,
-so no native binary was ever built on the machine this was written on.)
+the build log further down shows — against roughly one available on my machine, so I
+never built a native binary locally at all.)
 
 Which raised an uncomfortable question while reviewing all this: does that mean nobody
 finds out whether this code even *survives* AOT compilation until release day? Waiting
@@ -111,7 +117,7 @@ mv target/*-runner.jar diderot.jar
 ```
 
 because that makes `releases/latest/download/diderot.jar` a stable URL — which is what
-the JBang catalog alias points at, so `jbang diderot@sunix/diderot` keeps working across
+the JBang catalog alias points at, so `jbang diderot@sunix` keeps working across
 releases without editing anything. That pattern is GitHub's own, documented in [Linking to
 releases](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases):
 *"To link directly to a download of your latest release asset that was manually uploaded,
@@ -172,11 +178,12 @@ failed install can't leave a half-written binary behind.
 
 ## Proof, before anything was published
 
-Everything except the native build could be exercised locally, so it was.
+Five questions needed answering before any of this deserved to be merged. Four of them
+could be settled on my own machine; the fifth needed CI.
 
-The interesting test is the one that tries to get a tampered binary installed. A local
-stand-in release, served over `http://127.0.0.1`, with the payload swapped *after* its
-checksum was generated:
+**Can a tampered binary get installed?** The one that matters most, so it went first. A
+local stand-in release, served over `http://127.0.0.1`, with the payload swapped *after*
+its checksum was generated:
 
 ```console
 $ printf '#!/bin/sh\necho "PWNED"\n' > diderot-v0.0.1-test-linux-x86_64   # checksum NOT regenerated
@@ -188,8 +195,10 @@ $ ls bin | wc -l
 0
 ```
 
-Refused, non-zero exit, and — the part that matters — nothing written. The same
-stand-in release with an honest checksum installs and runs:
+Refused, non-zero exit, and — the part that matters — nothing written.
+
+**Does the honest path work at all?** Same stand-in release, checksum left alone this
+time:
 
 ```console
 $ DIDEROT_VERSION=v0.0.1-test sh install-local.sh
@@ -198,8 +207,9 @@ $ .../bin/diderot
 diderot v0.0.1-test (fake)
 ```
 
-Both no-release-yet and wrong-version paths fail with something a human can act on
-rather than a raw `curl` code:
+**Do the failures explain themselves?** An installer that dies on a raw `curl` exit code
+teaches the user nothing, so both the no-release-yet and the wrong-version paths have to
+say something actionable:
 
 ```console
 $ sh install.sh
@@ -208,16 +218,19 @@ published none yet, or api.github.com is unreachable from here. Set DIDEROT_VERS
 to pick one explicitly.
 ```
 
-JBang running a Quarkus uber-jar through a catalog alias also isn't an assumption — a
-local `jbang-catalog.json` pointing at the real uber-jar:
+**Does JBang actually run a Quarkus uber-jar through a catalog alias?** Worth checking
+rather than believing — a local `jbang-catalog.json` pointing at the real uber-jar:
 
 ```console
 $ jbang diderot --version
 diderot 1.0.0-SNAPSHOT
 ```
 
-And the canary answered the AOT question on the pull request, before any of this was
-merged. It ran on a GitHub-hosted `ubuntu-latest` runner (image `ubuntu24/20260816.277`),
+Which leaves the fifth question, the only one that could have sunk the whole milestone
+and the one none of the four above touches: **does this code even survive AOT
+compilation?** That is what the canary exists for, and it answered on the pull request,
+before any of this was merged. It ran on a GitHub-hosted `ubuntu-latest` runner (image
+`ubuntu24/20260816.277`),
 with GraalVM Community 21 installed by `graalvm/setup-graalvm@v1` — not on my machine,
 which is the point. `native-image` narrates its own work, so here is most of it, trimmed
 only where it repeats:
@@ -248,8 +261,8 @@ So this code does compile ahead-of-time, and the result runs: no missing reflect
 registration, and nothing in `oras-java`, Jackson's YAML support or commons-compress that
 AOT can't handle. Two details worth pulling out of that log. **Peak RSS: 4.14GB** —
 which retroactively settles the earlier hand-waving about memory: the build genuinely
-needs about four gigabytes, against roughly one available where this was written, so
-that wasn't an excuse but a measurement. And look at what `--version` prints: that's the
+needs about four gigabytes, against roughly one available on my machine, so that wasn't
+an excuse but a measurement. And look at what `--version` prints: that's the
 fix from the section below working *in native mode*, where reading a config value at
 runtime is precisely the sort of thing AOT compilation likes to break. It didn't.
 
@@ -296,7 +309,7 @@ three tries, and the first problem had been sitting there for days.
 I went looking for the Release PR release-please was supposed to have opened, and there
 wasn't one. There never had been. That workflow had failed on **every single push to
 `main` since M1** — five consecutive red runs, and nobody had thought to look, because
-nothing downstream depended on it yet. The error was not in our configuration:
+nothing downstream depended on it yet. And the error wasn't anything I'd written:
 
 ```text
 release-please failed: GitHub Actions is not permitted to create or approve pull requests.
@@ -332,7 +345,7 @@ checking it, and the tool corrected me — worth writing down precisely because 
 sort of confident-and-wrong claim that costs someone else an afternoon.
 
 All three traps now live in [`AGENT.md`](../../AGENT.md) as an actual procedure, next to
-the fourth one we already knew about: the binaries workflow needs a manual dispatch,
+the fourth one I already knew about: the binaries workflow needs a manual dispatch,
 because a Release created with the default `GITHUB_TOKEN` cannot trigger
 `on: release: published`. That one, at least, was predicted rather than discovered — and
 watching it come true was oddly satisfying: after the Release was published, the binaries
@@ -411,8 +424,9 @@ Same tree digest as chapter two's — `a4bc6fdf47bb…`, still equal to what
 program, compiled a different way, downloaded from a release instead of built from
 source, arriving at the identical answer.
 
-Finally the JBang path, which had only ever been tested against a local catalog pointing
-at a local jar. The documented command, verbatim:
+One command left to try. Until now JBang had only ever been pointed at a local catalog
+and a local jar; this time it reads the catalog out of this repository and fetches the jar
+from the release — so watch what it prints:
 
 ```console
 $ jbang diderot@sunix/diderot --version
@@ -423,12 +437,97 @@ It resolved this repository's `jbang-catalog.json`, followed the alias to
 `releases/latest/download/diderot.jar`, and ran it. The unversioned filename decision
 from earlier, paying off in one line.
 
+## The first thing to stop building it
+
+There's a pleasing symmetry to which project got to use the release first. Back in
+chapter two, [ai-skills](https://github.com/sunix/ai-skills) grew a GitHub Action that
+publishes a skill to ghcr.io — and to get hold of a CLI, that workflow checked out this
+repository, installed a JDK, and ran a Maven build. Its own comment admitted why:
+*"diderot has no release yet (M3), so build it from source for this run."*
+
+That sentence is what this milestone was for. Three steps come out:
+
+```yaml
+      - name: Check out diderot          # gone
+      - uses: actions/setup-java@v4      # gone
+      - run: ./mvnw -q package           # gone
+```
+
+and one goes in:
+
+```yaml
+      - name: Install diderot
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/sunix/diderot/main/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+```
+
+Which has a side effect I like more than the speed: publishing a skill now exercises
+`install.sh` on a machine that is not mine, every single time. A broken installer gets
+caught by that workflow rather than by a stranger.
+
+Worth testing before merging, obviously — and `workflow_dispatch` can be aimed at a
+branch, so there was no need to merge first and hope:
+
+```console
+$ gh workflow run push-skill-to-oci.yml --ref ci/use-released-diderot -f tag=v1
+```
+
+(That only works because a workflow of the same name already exists on the default branch;
+the very first time this workflow was added, back in chapter two, it had to be merged
+before it could be dispatched at all.)
+
+Watch the first three lines of what it printed, because that's the whole milestone in
+someone else's CI:
+
+```text
+Installing diderot v0.1.0 (linux-x86_64) into /home/runner/.local/bin
+Installed /home/runner/.local/bin/diderot
+diderot 0.1.0
+==> skills/documentation/making-of         -> oci://ghcr.io/sunix/skills/making-of:v1
+==> skills/github-actions/pr-preview-surge -> oci://ghcr.io/sunix/skills/pr-preview-surge:v1
+==> skills/github-actions/push-to-surge    -> oci://ghcr.io/sunix/skills/push-to-surge:v1
+==> skills/github-actions/release-please   -> oci://ghcr.io/sunix/skills/release-please:v1
+==> skills/webapp/github-star-button       -> oci://ghcr.io/sunix/skills/github-star-button:v1
+```
+
+Five skills, where before only `making-of` had ever been pushed by hand, one dispatch at
+a time.
+
+Then the other end of the pipe, using the binary the installer had put on my own machine
+earlier, against two skills that had never existed in a registry until that run:
+
+```console
+$ diderot update
+locked release-please      ghcr.io/sunix/skills/release-please@sha256:e83d5cf0f872 (tree:d2914ce4e917…)
+locked github-star-button  ghcr.io/sunix/skills/github-star-button@sha256:206f5b7dd24b (tree:3ed432ba9377…)
+$ diderot install && diderot status
+ok       github-star-button   .claude/skills/github-star-button
+ok       release-please       .claude/skills/release-please
+```
+
+And the same oracle as ever, twice over:
+
+```console
+$ git -C ai-skills rev-parse main:skills/github-actions/release-please
+d2914ce4e91720e4df859d103e299b5ca3b5f895
+$ git -C ai-skills rev-parse main:skills/webapp/github-star-button
+3ed432ba937741228d56baf343c5892048ebfc0d
+```
+
+One detail in there pleased me more than it probably should: `making-of`'s digest came
+back *different* from the one chapter two recorded — its content has changed since, as
+skills do. Erasmus's lockfile still pins the old one and will keep installing those exact
+bytes until someone runs `update`. Which is the entire point of a lockfile, observed in
+the wild rather than asserted in a test.
+
 ## What this chapter leaves open
 
-All five platforms now build, but only the Linux x86_64 binary has actually been *run* —
-the macOS, ARM and Windows executables exist and are checksummed, and that's all anyone
-can say about them from here. Someone on a Mac or a Windows box downloading one and
-finding out is the obvious next data point.
+All five platforms now build, but the Linux x86_64 binary is still the only one anyone
+has actually *run* — twice now, on two different machines, but the same platform both
+times. The macOS, ARM and Windows executables exist and are checksummed, and that's all I
+can honestly say about them. Someone on a Mac or a Windows box downloading one and finding
+out is the obvious next data point.
 
 Windows gets a native binary but no installer —
 `install.sh` covers Linux and macOS, and a PowerShell equivalent is a separate, later
