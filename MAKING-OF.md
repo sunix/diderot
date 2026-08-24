@@ -5,7 +5,7 @@ and the implementation work — kept here for new contributors, or anyone curiou
 together. Written in a blog-ish style rather than as formal docs, split into one post per
 chapter so each stays a readable size. Updated on request as the work progresses.*
 
-*Last updated: 2026-08-22.*
+*Last updated: 2026-08-24.*
 
 ## Posts
 
@@ -16,5 +16,6 @@ chapter so each stays a readable size. Updated on request as the work progresses
    [blog post](https://blog.sunix.org/posts/building-diderot-a-package-manager-for-ai-agent-skills-one-prompt-at-a-time-part-1/).
 2. [OCI at last: skills in real registries](doc/making-of/02-oci-push-and-pull.md) — the
    JKube detour, `diderot push` as an OCI artifact via the ORAS Java SDK, digest-pinned
-   `oci://` sources, and the tree digest that came back identical after a trip through a
-   registry.
+   `oci://` sources, the tree digest that came back identical after a trip through a
+   registry, and closing the loop for real: a GitHub Action publishing to ghcr.io and a
+   genuinely unrelated project (Erasmus) installing from it with zero credentials.
