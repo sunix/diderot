@@ -169,10 +169,108 @@ Character for character the `tree:` digest in the lockfile — computed from byt
 went disk → tar.gz → registry → pull → extraction. Two unrelated pipelines, one digest:
 the lock really is source-agnostic.
 
+## Closing the loop for real: a GitHub Action, and a stranger's pull in erasmus
+
+Everything above ran on my machine, against ttl.sh or a container I started myself. The
+goal for closing this chapter properly: someone else's project, pulling from a registry
+neither of us controls, published by a CI job instead of my laptop — the actual shape of
+"push a skill, anyone installs it."
+
+[ai-skills](https://github.com/sunix/ai-skills) got a small `workflow_dispatch` GitHub
+Action whose only job is building diderot from source (there's no release yet — that's
+still M3) and running `diderot push` on a chosen skill:
+
+```yaml
+- name: Push skill
+  run: |
+    java -jar diderot/target/quarkus-app/quarkus-run.jar push \
+      "skills/${{ inputs.skill_path }}" "ghcr.io/${{ github.repository_owner }}/skills/${skill_name}:${{ inputs.tag }}"
+```
+
+Two platform limits surfaced before it ran even once. `workflow_dispatch` cannot be
+tested from a feature branch via the API, even with `--ref` — GitHub only recognizes a
+dispatchable workflow once it exists on the default branch, so there was no way to dry
+run this before merging it. And separately, unrelated to diderot entirely: signing a git
+commit hung mid-session because this sandbox has no TTY for `pinentry` to prompt into —
+not fixable by retrying, so the actual passphrase entry happened in a human's terminal,
+once, to warm gpg-agent's cache.
+
+Merged, dispatched, and it worked on the first real run:
+
+```text
+pushed skills/documentation/making-of ->
+  ghcr.io/sunix/skills/making-of:v1@sha256:94e346dcebfaed4f8d60b0d958ad5944b5082d441641839a8eccf79c4c318075
+```
+
+Then I got the verification wrong, and it's worth keeping exactly because it was wrong.
+First check on whether the pushed package was actually pullable by a stranger:
+
+```console
+$ curl -o /dev/null -w "%{http_code}\n" https://ghcr.io/v2/sunix/skills/making-of/manifests/v1
+401
+```
+
+I read that as "still private, needs fixing." It wasn't a verdict — it was step one of
+the Docker Registry v2 protocol, which *always* answers a bare request with `401` plus a
+`WWW-Authenticate` challenge, public image or not. A real client is supposed to take that
+challenge, ask the token endpoint it names for a token (an anonymous one is enough for a
+public image), and retry:
+
+```console
+$ curl -s "https://ghcr.io/token?scope=repository:sunix/skills/making-of:pull&service=ghcr.io" \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['token'])" > /tmp/tok
+$ curl -o /dev/null -w "%{http_code}\n" https://ghcr.io/v2/sunix/skills/making-of/manifests/v1 \
+  -H "Authorization: Bearer $(cat /tmp/tok)"
+200
+```
+
+`200`. It was public the whole time — done that automatically, apparently because
+GitHub links a `GITHUB_TOKEN`-pushed package to the public repository whose workflow
+pushed it. General write-ups about GHCR insist new packages always start private; this
+one didn't, and I'm noting the discrepancy rather than papering over it, since I only
+caught my own mistake because it was pointed out, not because I'd verified properly the
+first time.
+
+With that settled, the actual point of this whole detour: install the skill in a project
+that has nothing to do with diderot or ai-skills — [Erasmus](https://codefloe.com/Vidocq/erasmus),
+a from-scratch Jakarta Bean Validation implementation, using nothing but a manifest and
+the packaged CLI, no credentials configured anywhere on that path:
+
+```console
+$ cat diderot.yaml
+skills:
+  - name: making-of
+    source: oci://ghcr.io/sunix/skills/making-of
+    version: v1
+targets: [claude]
+
+$ diderot update
+locked making-of  ghcr.io/sunix/skills/making-of@sha256:94e346dcebfa (tree:a4bc6fdf47bb...)
+$ diderot install
+installed making-of -> .claude/skills/making-of (tree:a4bc6fdf47bb... verified)
+$ diderot status
+ok       making-of  .claude/skills/making-of
+```
+
+And the oracle check lines up exactly the way it did with ttl.sh in the previous section:
+
+```console
+$ git -C ai-skills rev-parse HEAD:skills/documentation/making-of
+a4bc6fdf47bbc5ffe0ce5f5dc76db660e1d7ad54
+```
+
+Same digest, character for character, at the end of a pipeline that this time crossed a
+real CI system, a real public registry neither project owns, and a real, unrelated
+third repository. One thing worth being honest about for anyone trying this today:
+every step above rebuilt diderot from its Java sources, because there's still nothing to
+download — that disappears once M3 ships a native binary, a `curl | bash` installer, and
+a JBang catalog entry; at that point this whole exercise becomes a plain install, not a
+build.
+
 ## What this chapter leaves open
 
-Three honest gaps. Tags resolve exactly (`version: v1` means the tag `v1`) — semver
-ranges like `^1.0.0` over registry tags are not implemented yet. Signing is absent: the
-SDK's `attachArtifact` and the referrers API are exactly the seam cosign needs, and
-that's the next chapter. And the ORAS SDK is still alpha — this time it cost nothing but
-one noisy WARN log to silence, but the bet from part one stands.
+Two honest gaps remain. Tags resolve exactly (`version: v1` means the tag `v1`) — semver
+ranges like `^1.0.0` over registry tags are not implemented yet. And the ORAS SDK is
+still alpha — this time it cost nothing but one noisy WARN log to silence, but the bet
+from part one stands. Signing was in fact built and fully tested next — and then
+deliberately not merged; [chapter three](03-considering-signing.md) is the record of why.
