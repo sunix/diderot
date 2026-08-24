@@ -325,8 +325,8 @@ sha1.update((type + " " + content.length + "\0").getBytes(UTF_8)); // "blob 42\0
 return sha1.digest(content);
 ```
 
-— the same `<type> <size>\0` framing git has used since day one, which is why our digests
-and git's agree at all. And on the extraction side, the classic zip-slip guard:
+— the same `<type> <size>\0` framing git has used since day one, which is why diderot's
+digests and git's agree at all. And on the extraction side, the classic zip-slip guard:
 
 ```java
 Path out = root.resolve(entry.getName()).normalize();
@@ -343,7 +343,7 @@ expected-SHA string in the test would just assert that the code does what the co
 Instead the test builds a directory designed to hurt — nested dirs, an executable script,
 and a file named `sub-file.txt` that sorts differently once you know the trailing-`/`
 rule — then asks the **real git** (`git init && git add -A && git write-tree`) for the
-answer and requires our Java to match it:
+answer and requires diderot's hasher to match it:
 
 ```java
 String expected = gitTreeSha(repo);              // real `git write-tree`
