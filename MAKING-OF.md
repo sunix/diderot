@@ -19,3 +19,8 @@ chapter so each stays a readable size. Updated on request as the work progresses
    `oci://` sources, the tree digest that came back identical after a trip through a
    registry, and closing the loop for real: a GitHub Action publishing to ghcr.io and a
    genuinely unrelated project (Erasmus) installing from it with zero credentials.
+3. [One line to install it](doc/making-of/03-packaging-and-install.md) — the milestone
+   where diderot stops being a thing you compile: GraalVM native binaries built by a CI
+   matrix, a POSIX `curl | sh` installer that refuses tampered bytes, a JBang catalog
+   entry, why signing waits for the enterprise milestone, and the version-reporting bug
+   only a packaging milestone would have found.

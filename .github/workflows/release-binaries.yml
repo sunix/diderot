@@ -1,0 +1,111 @@
+name: Release binaries
+
+# Builds a GraalVM native binary per platform plus one portable uber-jar, and attaches
+# them to a GitHub Release so `install.sh` and JBang have something to download.
+#
+# Trigger note: release-please creates the Release. If it did so with the default
+# GITHUB_TOKEN, GitHub's anti-loop safeguard means this workflow will NOT fire on its own
+# — set a RELEASE_PLEASE_TOKEN secret (a PAT) for that, or just run this workflow
+# manually against the tag with workflow_dispatch.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and attach binaries to (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            asset: linux-aarch64
+          - runner: macos-13
+            asset: darwin-x86_64
+          - runner: macos-latest
+            asset: darwin-aarch64
+          - runner: windows-latest
+            asset: windows-x86_64
+            ext: .exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: "21"
+          distribution: graalvm-community
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+
+      # native-image needs several GB of RAM; every GitHub-hosted runner has enough,
+      # which is the whole reason this build lives in CI and not on a laptop.
+      - name: Build native binary
+        shell: bash
+        run: ./mvnw -B package -DskipTests -Dnative
+
+      - name: Name and checksum the binary
+        id: package
+        shell: bash
+        run: |
+          tag="${{ inputs.tag || github.event.release.tag_name }}"
+          src="$(ls target/diderot-*-runner${{ matrix.ext }})"
+          name="diderot-${tag}-${{ matrix.asset }}${{ matrix.ext }}"
+          mv "$src" "$name"
+          # sha256sum on Linux, shasum on macOS; both emit "<hash>  <file>".
+          if command -v sha256sum >/dev/null; then sha256sum "$name" > "$name.sha256"
+          else shasum -a 256 "$name" > "$name.sha256"; fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test the binary
+        shell: bash
+        run: ./${{ steps.package.outputs.name }} --version
+
+      - name: Attach to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.tag || github.event.release.tag_name }}" \
+            "${{ steps.package.outputs.name }}" "${{ steps.package.outputs.name }}.sha256" \
+            --clobber
+
+  # One JVM uber-jar, for JBang and for platforms with no native binary above.
+  uberjar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build uber-jar
+        run: ./mvnw -B package -DskipTests -Dquarkus.package.jar.type=uber-jar
+
+      # Deliberately unversioned filename: it makes
+      # releases/latest/download/diderot.jar a stable URL, which is what the JBang
+      # catalog alias points at. The version still lives in the release tag / URL path.
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag || github.event.release.tag_name }}"
+          mv target/*-runner.jar diderot.jar
+          sha256sum diderot.jar > diderot.jar.sha256
+          gh release upload "$tag" diderot.jar diderot.jar.sha256 --clobber

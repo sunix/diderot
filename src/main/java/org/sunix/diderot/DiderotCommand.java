@@ -10,7 +10,7 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
 
 @TopCommand
-@Command(name = "diderot", mixinStandardHelpOptions = true, version = "diderot 0.1.0-SNAPSHOT",
+@Command(name = "diderot", mixinStandardHelpOptions = true, versionProvider = BuildVersionProvider.class,
         description = "Package manager for AI agent skills — Helm-style manifests and lockfiles over git and OCI registry sources.",
         subcommands = { UpdateCommand.class, InstallCommand.class, StatusCommand.class, PushCommand.class })
 public class DiderotCommand implements Runnable {

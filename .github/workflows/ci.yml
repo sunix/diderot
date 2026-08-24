@@ -21,3 +21,24 @@ jobs:
       # verify runs the full test suite, including the end-to-end tests that
       # exercise real git fixture repositories (git is preinstalled on the runner).
       - run: ./mvnw -B verify
+
+  # A native build for one platform, as a canary. Release day builds five of these; if
+  # native-image can't compile this code (a missing reflection registration, a dependency
+  # that doesn't survive AOT), that must fail on the pull request rather than at release
+  # time. The release workflow handles the full matrix.
+  native-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: graalvm-community
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - run: ./mvnw -B package -DskipTests -Dnative
+      - name: The binary has to actually run
+        run: |
+          binary="$(ls target/diderot-*-runner)"
+          "$binary" --version
+          "$binary" --help

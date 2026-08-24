@@ -4,7 +4,7 @@
 
 Named after Diderot's *Encyclopédie* — the "Dictionnaire raisonné des sciences, des arts et **des métiers**": a registry of skills, meant to be distributed.
 
-> ⚠️ **Early development.** Git and OCI registry sources work end to end (`push` / `update` / `install` / `status`); signing is next. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
+> ⚠️ **Early development, but usable.** Git and OCI registry sources work end to end (`push` / `update` / `install` / `status`), and there's a real install path — no compiling required (see below). Signature verification is built but held back so this MVP could ship first. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
 
 ## Why
 
@@ -71,12 +71,37 @@ Then, Helm-style:
 | `diderot status` | — | report drift between installed skills and the lock |
 | `diderot push <dir> <oci-ref>` | `helm push` | package a skill and push it to an OCI registry |
 
+## Install
+
+Once a release is published, one line is enough — it picks the binary for your platform,
+verifies its SHA-256 checksum, and refuses to install anything that doesn't match:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sunix/diderot/main/install.sh | sh
+```
+
+Installs to `~/.local/bin` by default; override with `DIDEROT_INSTALL_DIR`, and pin a
+version with `DIDEROT_VERSION=v0.1.0`. Native binaries are published for Linux and macOS
+(x86_64 and aarch64) and Windows (x86_64).
+
+Already have [JBang](https://www.jbang.dev/)? No install step at all:
+
+```bash
+jbang diderot@sunix/diderot --help
+```
+
+Or grab a binary by hand from the [releases
+page](https://github.com/sunix/diderot/releases) — every asset ships a `.sha256`
+alongside it. On any platform without a native binary, the portable `diderot.jar` from
+the same release runs anywhere with Java 21+ (`java -jar diderot.jar --help`).
+
 ## Roadmap
 
 - **M1** ✅ — `update` / `install` / `status` over git sources (pin by tree SHA), standard Agent Skills layout (`.claude/skills/`).
 - **M2** ✅ — OCI backend via [oras-java](https://github.com/oras-project/oras-java): `push`, `oci://` sources, pin by manifest digest.
-- **M2b** — signing: cosign signatures attached via the referrers API, verified at lock and install time; semver ranges over registry tags.
-- **M3** — distribution: native binaries per platform (GraalVM), one-line `curl | bash` installer, JBang catalog (`jbang diderot@sunix`).
+- **M3** ✅ — distribution: GraalVM native binaries per platform built in CI, the one-line installer above, and a JBang catalog entry.
+- **Next** — semver ranges over registry tags; a `--frozen`/welcoming `install` (still under DX reflection).
+- **Enterprise milestone** — keyless signing (sigstore) with **identity pinning**: verify not just that a signature exists, but that the expected publisher made it, for teams consuming skills from private registries. Signing itself is already built and proven against sigstore staging on the `feat/m2b-signing` branch ([PR #6](https://github.com/sunix/diderot/pull/6)); v1 deliberately focuses on developer experience instead.
 - **Later** — additional `--target` layouts for tools that diverge from the standard directory convention.
 
 ## Building from source

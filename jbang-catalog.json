@@ -1,0 +1,8 @@
+{
+  "aliases": {
+    "diderot": {
+      "script-ref": "https://github.com/sunix/diderot/releases/latest/download/diderot.jar",
+      "description": "Package manager for AI agent skills - Helm-style manifests and lockfiles over git and OCI registry sources."
+    }
+  }
+}
