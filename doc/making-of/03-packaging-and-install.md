@@ -117,7 +117,34 @@ releases](https://docs.github.com/en/repositories/releasing-projects-on-github/l
 *"To link directly to a download of your latest release asset that was manually uploaded,
 the suffix is `/releases/latest/download/asset-name.zip`."* It resolves to whichever
 release is latest, which only works if the filename never changes — hence dropping the
-version from it. The version still lives in the release tag and the URL path. And the trigger has a wart inherited from
+version from it. The version still lives in the release tag and the URL path.
+
+Worth spelling out how JBang finds that catalog at all, because the two forms resolve to
+different places and it's easy to assume otherwise. From [JBang's own
+documentation](https://www.jbang.dev/documentation/jbang/latest/alias_catalogs.html):
+`hello@acme` resolves to *"hello alias found in `acme/jbang-catalog/jbang-catalog.json`
+searched on github, gitlab and bitbucket in that order"*, while `hello@acme/mycatalog`
+resolves to *"hello found in `acme/mycatalog/jbang-catalog.json`"*. So
+`diderot@sunix/diderot` does map straight onto github.com/sunix/diderot and reads the
+`jbang-catalog.json` sitting in this repository — nothing to configure, no catalog to
+register, which is why it worked the first time it was tried. The shorter
+`diderot@sunix`, on the other hand, looks for a repository literally named
+`sunix/jbang-catalog`. Same-looking syntax, different repository.
+
+Which turned out to be a five-minute errand rather than a limitation: that repository now
+exists, holding one `jbang-catalog.json` and a README, so both forms work. Two words
+shorter, and it becomes the place any future tool of mine gets an alias:
+
+```console
+$ jbang diderot@sunix --version
+diderot 0.1.0
+```
+
+Run from an empty directory on a machine with nothing configured — which is the whole
+appeal of the convention. The naming is the entire mechanism: call the repository
+`jbang-catalog` and the account name alone is enough.
+
+And the trigger has a wart inherited from
 [my own release-please skill](https://github.com/sunix/ai-skills/tree/main/skills/github-actions/release-please),
 which warns about exactly this: a Release created with the default `GITHUB_TOKEN` will
 *not* fire `on: release: published`, because GitHub refuses to let one workflow trigger
@@ -143,9 +170,9 @@ installing anyway — an installer that verifies only when convenient verifies n
 And it never writes into the target directory until after that comparison passes, so a
 failed install can't leave a half-written binary behind.
 
-## Proof
+## Proof, before anything was published
 
-Everything except the native build could be exercised here, so it was.
+Everything except the native build could be exercised locally, so it was.
 
 The interesting test is the one that tries to get a tampered binary installed. A local
 stand-in release, served over `http://127.0.0.1`, with the payload swapped *after* its
@@ -307,16 +334,107 @@ sort of confident-and-wrong claim that costs someone else an afternoon.
 All three traps now live in [`AGENT.md`](../../AGENT.md) as an actual procedure, next to
 the fourth one we already knew about: the binaries workflow needs a manual dispatch,
 because a Release created with the default `GITHUB_TOKEN` cannot trigger
-`on: release: published`.
+`on: release: published`. That one, at least, was predicted rather than discovered — and
+watching it come true was oddly satisfying: after the Release was published, the binaries
+workflow's run list was simply *empty*. Not failed. Never started.
+
+## The fifth trap: a runner that no longer exists
+
+Dispatched by hand, then. Five of the six jobs went green — and the run kept going. One
+job, forever:
+
+```text
+native (macos-13, darwin-x86_64)    queued
+```
+
+Not failed. `queued`. `macos-13` was
+[retired in December 2025](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/),
+and a label that no longer resolves to any runner doesn't produce an error — the job just
+never gets scheduled. Nothing turns red, so from the outside it's indistinguishable from
+a slow build, which is exactly how it was first read.
+
+The replacement is `macos-15-intel`, which GitHub describes as the last Intel image it
+plans to offer, until August 2027, Apple having dropped the architecture. One line in the
+matrix.
+
+Worth noting what this says about the canary from earlier: it cannot catch this. It builds
+`ubuntu-latest` and only `ubuntu-latest`, so a retired label on any of the other four
+platforms is invisible until release day by construction. A cheap guard against one class
+of failure is still blind to the next one.
+
+## Proof, for real this time
+
+Six jobs, six successes, twelve assets:
+
+```text
+run: success
+  success  uberjar
+  success  native (ubuntu-latest, linux-x86_64)
+  success  native (ubuntu-24.04-arm, linux-aarch64)
+  success  native (windows-latest, windows-x86_64, .exe)
+  success  native (macos-latest, darwin-aarch64)
+  success  native (macos-15-intel, darwin-x86_64)
+```
+
+Then the line this whole chapter exists for, run exactly as the README prints it, against
+the published release, with nothing local involved:
+
+```console
+$ curl -fsSL https://raw.githubusercontent.com/sunix/diderot/main/install.sh | sh
+Installing diderot v0.1.0 (linux-x86_64) into …
+Installed …/diderot
+
+$ file diderot
+ELF 64-bit …                       # a real native binary, not a wrapper script
+$ diderot --version
+diderot 0.1.0                      # the released version, not a scaffold leftover
+$ /usr/bin/time diderot --version
+  startup: 0.01s
+```
+
+Ten milliseconds to start. That's the number that makes native worth the CI minutes — the
+same command through the JVM spends most of its life booting.
+
+And the binary does the job, with no Java anywhere on the path, against the real registry:
+
+```console
+$ diderot update
+locked making-of  ghcr.io/sunix/skills/making-of@sha256:94e346dcebfa (tree:a4bc6fdf47bb…)
+$ diderot install
+installed making-of -> .claude/skills/making-of (tree:a4bc6fdf47bb… verified)
+$ diderot status
+ok       making-of  .claude/skills/making-of
+```
+
+Same tree digest as chapter two's — `a4bc6fdf47bb…`, still equal to what
+`git rev-parse HEAD:skills/documentation/making-of` says in ai-skills. A different
+program, compiled a different way, downloaded from a release instead of built from
+source, arriving at the identical answer.
+
+Finally the JBang path, which had only ever been tested against a local catalog pointing
+at a local jar. The documented command, verbatim:
+
+```console
+$ jbang diderot@sunix/diderot --version
+diderot 0.1.0
+```
+
+It resolved this repository's `jbang-catalog.json`, followed the alias to
+`releases/latest/download/diderot.jar`, and ran it. The unversioned filename decision
+from earlier, paying off in one line.
 
 ## What this chapter leaves open
 
-Four of the five platforms are still theory: only Linux x86_64 has actually been compiled
-and run, so cutting `v0.1.0` and watching macOS, ARM and Windows either produce binaries
-or teach me something is the next real task. `install.sh` has never downloaded from an
-actual GitHub Release either — the verification logic is proven against a stand-in, the
-live URLs aren't. `jbang diderot@sunix` (the short form, without the repository) needs a
-`sunix/jbang-catalog` repository that doesn't exist yet; `jbang diderot@sunix/diderot`
-works from this repo's own catalog in the meantime. And Windows gets a native binary but
-no installer — `install.sh` covers Linux and macOS, and a PowerShell equivalent is a
-separate, later errand.
+All five platforms now build, but only the Linux x86_64 binary has actually been *run* —
+the macOS, ARM and Windows executables exist and are checksummed, and that's all anyone
+can say about them from here. Someone on a Mac or a Windows box downloading one and
+finding out is the obvious next data point.
+
+Windows gets a native binary but no installer —
+`install.sh` covers Linux and macOS, and a PowerShell equivalent is a separate, later
+errand. And the binaries are large: about 77–80 MB each, the price of a self-contained
+native image, which is worth revisiting if it ever bothers anyone.
+
+Milestone-wise, the queue is unchanged: `add` and `remove` next, since declaring a skill
+still means hand-editing `diderot.yaml`, and signing after that, for the audience that
+needs it.
