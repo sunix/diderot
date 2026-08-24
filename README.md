@@ -4,7 +4,7 @@
 
 Named after Diderot's *Encyclopédie* — the "Dictionnaire raisonné des sciences, des arts et **des métiers**": a registry of skills, meant to be distributed.
 
-> ⚠️ **Early development.** Git and OCI registry sources work end to end (`push` / `update` / `install` / `status`); signing is next. Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
+> ⚠️ **Early development.** Git and OCI registry sources work end to end (`push` / `update` / `install` / `status`). Signature verification is built and proven but not enabled yet — it's sequenced with the private-registry/enterprise story rather than v1 (see the roadmap). Watch [MAKING-OF.md](MAKING-OF.md) for the story as it unfolds.
 
 ## Why
 
@@ -75,7 +75,8 @@ Then, Helm-style:
 
 - **M1** ✅ — `update` / `install` / `status` over git sources (pin by tree SHA), standard Agent Skills layout (`.claude/skills/`).
 - **M2** ✅ — OCI backend via [oras-java](https://github.com/oras-project/oras-java): `push`, `oci://` sources, pin by manifest digest.
-- **M2b** — signing: cosign signatures attached via the referrers API, verified at lock and install time; semver ranges over registry tags.
+- **M2b** — semver ranges over registry tags; a `--frozen`/welcoming `install` (still under DX reflection).
+- **Enterprise milestone** — keyless signing (sigstore) with **identity pinning**: verify not just that a signature exists, but that the expected publisher made it, for teams consuming skills from private registries. Signing itself is already built and proven against sigstore staging on the `feat/m2b-signing` branch (closed [PR #6](https://github.com/sunix/diderot/pull/6)); [the making-of](doc/making-of/03-considering-signing.md) explains why it waits for this milestone instead of shipping in v1.
 - **M3** — distribution: native binaries per platform (GraalVM), one-line `curl | bash` installer, JBang catalog (`jbang diderot@sunix`).
 - **Later** — additional `--target` layouts for tools that diverge from the standard directory convention.
 

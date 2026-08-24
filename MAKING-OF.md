@@ -19,3 +19,10 @@ chapter so each stays a readable size. Updated on request as the work progresses
    `oci://` sources, the tree digest that came back identical after a trip through a
    registry, and closing the loop for real: a GitHub Action publishing to ghcr.io and a
    genuinely unrelated project (Erasmus) installing from it with zero credentials.
+3. [Signing works, and waits for the users who need it](doc/making-of/03-considering-signing.md) —
+   a working keyless-signing feature (proven against sigstore's staging instance; the
+   production browser flow never ran here) that isn't landing in `main` yet: what a
+   signature actually guarantees versus what it sounds like it guarantees, where the
+   signing identity comes from on a laptop vs. in CI, how Docker Hub, Helm, Bitnami,
+   Notation, quay.io and Red Hat each handle this — and why v1 is about developer
+   experience while signing belongs to the enterprise milestone.
