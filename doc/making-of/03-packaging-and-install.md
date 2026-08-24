@@ -117,7 +117,34 @@ releases](https://docs.github.com/en/repositories/releasing-projects-on-github/l
 *"To link directly to a download of your latest release asset that was manually uploaded,
 the suffix is `/releases/latest/download/asset-name.zip`."* It resolves to whichever
 release is latest, which only works if the filename never changes — hence dropping the
-version from it. The version still lives in the release tag and the URL path. And the trigger has a wart inherited from
+version from it. The version still lives in the release tag and the URL path.
+
+Worth spelling out how JBang finds that catalog at all, because the two forms resolve to
+different places and it's easy to assume otherwise. From [JBang's own
+documentation](https://www.jbang.dev/documentation/jbang/latest/alias_catalogs.html):
+`hello@acme` resolves to *"hello alias found in `acme/jbang-catalog/jbang-catalog.json`
+searched on github, gitlab and bitbucket in that order"*, while `hello@acme/mycatalog`
+resolves to *"hello found in `acme/mycatalog/jbang-catalog.json`"*. So
+`diderot@sunix/diderot` does map straight onto github.com/sunix/diderot and reads the
+`jbang-catalog.json` sitting in this repository — nothing to configure, no catalog to
+register, which is why it worked the first time it was tried. The shorter
+`diderot@sunix`, on the other hand, looks for a repository literally named
+`sunix/jbang-catalog`. Same-looking syntax, different repository.
+
+Which turned out to be a five-minute errand rather than a limitation: that repository now
+exists, holding one `jbang-catalog.json` and a README, so both forms work. Two words
+shorter, and it becomes the place any future tool of mine gets an alias:
+
+```console
+$ jbang diderot@sunix --version
+diderot 0.1.0
+```
+
+Run from an empty directory on a machine with nothing configured — which is the whole
+appeal of the convention. The naming is the entire mechanism: call the repository
+`jbang-catalog` and the account name alone is enough.
+
+And the trigger has a wart inherited from
 [my own release-please skill](https://github.com/sunix/ai-skills/tree/main/skills/github-actions/release-please),
 which warns about exactly this: a Release created with the default `GITHUB_TOKEN` will
 *not* fire `on: release: published`, because GitHub refuses to let one workflow trigger

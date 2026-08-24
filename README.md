@@ -84,11 +84,23 @@ Installs to `~/.local/bin` by default; override with `DIDEROT_INSTALL_DIR`, and 
 version with `DIDEROT_VERSION=v0.1.0`. Native binaries are published for Linux and macOS
 (x86_64 and aarch64) and Windows (x86_64).
 
-Already have [JBang](https://www.jbang.dev/)? No install step at all:
+Already have [JBang](https://www.jbang.dev/)? It can install `diderot` as a real command,
+resolving this repository's catalog and the release jar for you — no download step, and it
+picks a suitable JDK if yours is older than 21:
 
 ```bash
-jbang diderot@sunix/diderot --help
+jbang app install diderot@sunix
+diderot --help
 ```
+
+Or run it without installing anything at all:
+
+```bash
+jbang diderot@sunix --help
+```
+
+(Both resolve [`sunix/jbang-catalog`](https://github.com/sunix/jbang-catalog);
+`diderot@sunix/diderot` works too, reading this repository's own `jbang-catalog.json`.)
 
 Or grab a binary by hand from the [releases
 page](https://github.com/sunix/diderot/releases) — every asset ships a `.sha256`
