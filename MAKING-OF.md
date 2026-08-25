@@ -30,3 +30,9 @@ chapter so each stays a readable size. Updated on request as the work progresses
    and the five things in the way — a rename that made a workflow untestable, the same
    permission wall on a second repository, a release that cannot trigger its own publish,
    and pushes that aren't idempotent.
+5. [Newest 1.x, and the trap inside `latest`](doc/making-of/05-semver-ranges.md) — the feature
+   part four built the prerequisite for: semver ranges resolved against a registry's tags, the
+   five-minute experiment that changed the design (a range parser reads `latest` as "any
+   version"), why `install` and `status` needed no changes again, the lockfile learning to say
+   which release it landed on, and a pull request that misrepresented its own diff because I
+   branched from the wrong branch.
