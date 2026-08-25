@@ -23,7 +23,12 @@ public class Manifest {
         public String name;
         /** e.g. git+https://github.com/sunix/ai-skills#skills/documentation/making-of */
         public String source;
-        /** For git sources: a branch, tag, or commit SHA. Defaults to the remote default branch resolution of "HEAD". */
+        /**
+         * For git sources: a branch, tag, or commit SHA. For {@code oci://} sources: a tag, or a
+         * semver range such as {@code ^1.0.0}, {@code ~1.2.0} or {@code >=1.0.0 <2}, resolved
+         * against the tags the repository publishes. Defaults to the remote default branch for git
+         * and to the {@code latest} tag for a registry.
+         */
         public String version = "HEAD";
     }
 }

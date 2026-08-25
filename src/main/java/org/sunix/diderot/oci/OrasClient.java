@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.Map;
 
 import org.sunix.diderot.core.GitTreeHasher;
@@ -13,6 +14,7 @@ import land.oras.ArtifactType;
 import land.oras.ContainerRef;
 import land.oras.Manifest;
 import land.oras.Registry;
+import land.oras.Tags;
 
 /**
  * The OCI counterpart of GitCli: the only class that talks to container registries, built on the
@@ -44,6 +46,16 @@ public class OrasClient {
     /** Resolves a tag reference (e.g. {@code ghcr.io/owner/skill:v1}) to its manifest digest. */
     public String resolveDigest(String reference) {
         return registryFor(reference).getDescriptor(ContainerRef.parse(reference)).getDigest();
+    }
+
+    /**
+     * Every tag the repository advertises, in registry order. The SDK's single-argument
+     * {@code getTags} already follows the pagination links and accumulates the pages (with a guard
+     * against a registry that keeps pointing at itself), so a long tag list needs no paging here.
+     */
+    public List<String> listTags(String repository) {
+        Tags tags = registryFor(repository).getTags(ContainerRef.parse(repository));
+        return tags.tags() == null ? List.of() : List.copyOf(tags.tags());
     }
 
     /**

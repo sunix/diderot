@@ -25,6 +25,15 @@ public class LockFile {
         /** The commit SHA the version constraint resolved to at lock time. */
         public String resolved;
         /**
+         * For registry sources, the tag the constraint resolved to - informational only, and
+         * omitted for git sources where {@link #resolved} is already a readable commit. It exists
+         * because a range leaves the answer invisible otherwise: {@code ^1.0.0} against an opaque
+         * {@code sha256:...} tells a human nothing about which release they are on. Read it as
+         * "at lock time, this tag pointed at that digest" - the digest stays the authority, since a
+         * tag can be re-pushed and this field cannot notice.
+         */
+        public String tag;
+        /**
          * Content digest of the skill directory: {@code tree:<git tree SHA-1>}. This is what install
          * verifies and status compares against — a tag can be re-pushed, a tree SHA cannot lie.
          */
