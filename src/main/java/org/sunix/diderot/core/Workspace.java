@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 import org.sunix.diderot.core.LockFile.LockedSkill;
 import org.sunix.diderot.core.Manifest.ManifestSkill;
@@ -141,9 +142,12 @@ public class Workspace {
             return skill.version;
         }
         List<String> tags = listTags(skill, ref);
-        return VersionConstraint.select(skill.version, tags).orElseThrow(() -> new IOException(
-                "Skill '" + skill.name + "': no tag in " + ref.url() + " satisfies " + skill.version
-                        + ". " + describeTags(tags)));
+        Optional<String> chosen = VersionConstraint.select(skill.version, tags);
+        if (chosen.isEmpty()) {
+            throw new IOException("Skill '" + skill.name + "': no tag in " + ref.url()
+                    + " satisfies " + skill.version + ". " + describeTags(tags));
+        }
+        return chosen.get();
     }
 
     private List<String> listTags(ManifestSkill skill, SourceRef ref) throws IOException {

@@ -32,7 +32,7 @@ chapter so each stays a readable size. Updated on request as the work progresses
    and pushes that aren't idempotent.
 5. [Newest 1.x, and the trap inside `latest`](doc/making-of/05-semver-ranges.md) — the feature
    part four built the prerequisite for: semver ranges resolved against a registry's tags, the
-   five-minute experiment that changed the design (a range parser reads `latest` as "any
-   version"), why `install` and `status` needed no changes again, the lockfile learning to say
-   which release it landed on, and a pull request that misrepresented its own diff because I
-   branched from the wrong branch.
+   throwaway experiment that changed the design (a range parser reads `latest` as "any version",
+   and would have resolved it to the newest release instead of the tag), why `install` and
+   `status` needed no changes again, the lockfile learning to say which release it landed on, and
+   an error message that finally names what a repository does publish.
