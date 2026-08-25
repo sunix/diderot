@@ -59,6 +59,13 @@
             <version>1.27.1</version>
         </dependency>
         <dependency>
+            <!-- Semver comparison and npm-style ranges: pre-release ordering and range grammar are
+                 a classic source of subtle bugs, so this is not reimplemented here. -->
+            <groupId>org.semver4j</groupId>
+            <artifactId>semver4j</artifactId>
+            <version>6.0.0</version>
+        </dependency>
+        <dependency>
             <groupId>io.quarkiverse.oras</groupId>
             <artifactId>quarkus-oras</artifactId>
             <version>0.6.4</version>

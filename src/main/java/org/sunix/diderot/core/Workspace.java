@@ -51,8 +51,10 @@ public class Workspace {
                 case OCI -> lockOciSkill(skill, ref);
             };
             lock.skills.add(locked);
+            // With ranges in play, the repository alone no longer says what was chosen.
+            String reference = locked.tag == null ? ref.url() : ref.url() + ":" + locked.tag;
             out.printf("locked %-20s %s@%s (%s)%n",
-                    skill.name, ref.url(), shortSha(locked.resolved), locked.digest);
+                    skill.name, reference, shortSha(locked.resolved), locked.digest);
         }
         lock.skills.sort(Comparator.comparing(s -> s.name));
         Yaml.write(lockPath(), lock);
@@ -104,11 +106,15 @@ public class Workspace {
     }
 
     private LockedSkill lockOciSkill(ManifestSkill skill, SourceRef ref) throws IOException {
-        // "HEAD" is the git-flavored default; for a registry the moving default tag is "latest".
-        String tag = skill.version == null || skill.version.isBlank() || "HEAD".equals(skill.version)
-                ? "latest"
-                : skill.version;
-        String digest = oci.resolveDigest(ref.url() + ":" + tag);
+        String tag = resolveTag(skill, ref);
+        String digest;
+        try {
+            digest = oci.resolveDigest(ref.url() + ":" + tag);
+        } catch (RuntimeException e) {
+            // Bare registry errors name neither the reference that failed nor what does exist.
+            throw new IOException("Skill '" + skill.name + "': cannot resolve " + ref.url() + ":" + tag
+                    + " (" + e.getMessage() + "). " + publishedTags(ref), e);
+        }
         Path content = oci.cachedPull(ref.url(), digest);
         if (!Files.isRegularFile(content.resolve("SKILL.md"))) {
             throw new IOException("Skill '" + skill.name + "': no SKILL.md in " + ref.url() + ":" + tag);
@@ -117,8 +123,55 @@ public class Workspace {
         locked.name = skill.name;
         locked.source = skill.source;
         locked.resolved = digest;
+        locked.tag = tag;
         locked.digest = "tree:" + GitTreeHasher.treeSha(content);
         return locked;
+    }
+
+    /**
+     * The registry tag a manifest constraint points at. A literal tag is used exactly as written, so
+     * a pin stays a pin; only something written like a range gets resolved against the tag list.
+     */
+    private String resolveTag(ManifestSkill skill, SourceRef ref) throws IOException {
+        // "HEAD" is the git-flavored default; for a registry the moving default tag is "latest".
+        if (skill.version == null || skill.version.isBlank() || "HEAD".equals(skill.version)) {
+            return "latest";
+        }
+        if (!VersionConstraint.isRange(skill.version)) {
+            return skill.version;
+        }
+        List<String> tags = listTags(skill, ref);
+        return VersionConstraint.select(skill.version, tags).orElseThrow(() -> new IOException(
+                "Skill '" + skill.name + "': no tag in " + ref.url() + " satisfies " + skill.version
+                        + ". " + describeTags(tags)));
+    }
+
+    private List<String> listTags(ManifestSkill skill, SourceRef ref) throws IOException {
+        try {
+            return oci.listTags(ref.url());
+        } catch (RuntimeException e) {
+            throw new IOException("Skill '" + skill.name + "': cannot list the tags of " + ref.url()
+                    + ", which " + skill.version + " needs in order to resolve (" + e.getMessage() + ").", e);
+        }
+    }
+
+    private static String describeTags(List<String> tags) {
+        List<String> semver = VersionConstraint.semverTags(tags);
+        if (semver.isEmpty()) {
+            return tags.isEmpty()
+                    ? "The repository advertises no tags at all."
+                    : "None of its tags are semver: " + String.join(", ", tags) + ".";
+        }
+        return "Published versions, newest first: " + String.join(", ", semver) + ".";
+    }
+
+    /** What the repository does publish - the context a bare 404 leaves out. */
+    private String publishedTags(SourceRef ref) {
+        try {
+            return describeTags(oci.listTags(ref.url()));
+        } catch (RuntimeException e) {
+            return "Its tag list could not be read either (" + e.getMessage() + ").";
+        }
     }
 
     /** Compare installed skills against the lockfile; returns the number of problems found. */

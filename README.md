@@ -25,7 +25,7 @@ skills:
     version: main            # branch, tag, or commit
   - name: release-please
     source: oci://ghcr.io/sunix/skills/release-please   # an OCI registry
-    version: v1                                         # exact tag (semver ranges: planned)
+    version: "^1.0.0"                                   # newest 1.x, or an exact tag to pin
 targets: [claude]            # agent layouts: claude (.claude/skills), agents (.agents/skills)
 ```
 
@@ -39,6 +39,11 @@ skills:
   source: git+https://github.com/sunix/ai-skills#skills/documentation/making-of
   resolved: 64358bc5644155d4513bf17e421119fc6eec9127
   digest: tree:0f755a27d65b67d80d6d1ee2ed0d8a7963fa8f23
+- name: release-please
+  source: oci://ghcr.io/sunix/skills/release-please
+  resolved: sha256:f1ecb79525a464d5afe7aa5b2ea9a548221a8d73247756127dc5b3ffe23f6771
+  tag: 1.2.0                    # what "^1.0.0" resolved to, for humans; the digest is the authority
+  digest: tree:d87753e53a07325bdeb60f35fb45b929ae4c6b33
 ```
 
 `diderot install` extracts exactly those bytes into the agent directories and verifies the digest
@@ -61,6 +66,44 @@ diderot push skills/documentation/making-of oci://ghcr.io/sunix/skills/making-of
 Skills travel as OCI artifacts (`artifactType: application/vnd.diderot.skill.v1`, one
 tar+gzip layer), so they land in any OCI-conformant registry: ghcr.io, Harbor,
 Artifactory, ECR, or a plain [`registry:2`](https://hub.docker.com/_/registry).
+
+### Versions and ranges
+
+For a registry source, `version:` is either a tag or a **semver range** resolved against the tags
+the repository publishes:
+
+```yaml
+version: 1.2.0        # that tag, pinned
+version: latest       # that tag, which moves
+version: "^1.0.0"     # newest 1.x
+version: "~1.2.0"     # newest 1.2.x
+version: ">=1.0.0 <2" # explicit bounds
+version: 1.2.x        # same idea, x-range spelling
+                      # omit the line entirely and you get `latest`
+```
+
+Anything written like a range (`^ ~ > < = | *`, a space, or an `x`-range) is resolved against the
+tag list; anything else is used as a literal tag, so a pin stays a pin. Tags that aren't semver —
+`latest`, `main`, a date stamp — are skipped rather than treated as errors, and pre-releases are
+excluded unless the range asks for them, following npm's rule. Whatever the range picks, the lock
+still pins the **manifest digest**, so `install` is unaffected by how resolution happened:
+
+```console
+$ diderot update
+locked release-please  ghcr.io/sunix/skills/release-please:1.2.0@sha256:f1ecb79525a4 (tree:d87753e53a07…)
+```
+
+When nothing satisfies the range, the error says what the repository does publish rather than
+leaving you to go and look:
+
+```console
+$ diderot update
+error: Skill 'release-please': no tag in ghcr.io/sunix/skills/release-please satisfies ^9.0.0.
+       Published versions, newest first: 1.2.0, 1.1.0.
+```
+
+Ranges over **git** tags are not implemented; for a git source, `version:` remains a branch, tag or
+commit.
 
 Then, Helm-style:
 
@@ -112,8 +155,9 @@ the same release runs anywhere with Java 21+ (`java -jar diderot.jar --help`).
 - **M1** ✅ — `update` / `install` / `status` over git sources (pin by tree SHA), standard Agent Skills layout (`.claude/skills/`).
 - **M2** ✅ — OCI backend via [oras-java](https://github.com/oras-project/oras-java): `push`, `oci://` sources, pin by manifest digest.
 - **M3** ✅ — distribution: GraalVM native binaries per platform built in CI, the one-line installer above, and a JBang catalog entry.
-- **Next** — semver ranges over registry tags; a `--frozen`/welcoming `install` (still under DX reflection).
-- **Enterprise milestone** — keyless signing (sigstore) with **identity pinning**: verify not just that a signature exists, but that the expected publisher made it, for teams consuming skills from private registries. Signing itself is already built and proven against sigstore staging on the `feat/m2b-signing` branch ([PR #6](https://github.com/sunix/diderot/pull/6)); v1 deliberately focuses on developer experience instead.
+- **M4** ✅ — semver ranges over registry tags (`^1.0.0`, `~1.2.0`, `>=1.0.0 <2`), resolved from the tag list and pinned by digest.
+- **Next** — `add` / `remove`, so declaring a skill isn't hand-editing YAML ([#24](https://github.com/sunix/diderot/issues/24)); a `--frozen`/welcoming `install` (still under DX reflection).
+- **Enterprise milestone** — keyless signing (sigstore) with **identity pinning**: verify not just that a signature exists, but that the expected publisher made it, for teams consuming skills from private registries. Signing itself is already built and proven against sigstore staging on the `feat/m2b-signing` branch ([PR #6](https://github.com/sunix/diderot/pull/6)); v1 deliberately focuses on developer experience instead — [#25](https://github.com/sunix/diderot/issues/25) tracks what resuming it needs.
 - **Later** — additional `--target` layouts for tools that diverge from the standard directory convention.
 
 ## Building from source

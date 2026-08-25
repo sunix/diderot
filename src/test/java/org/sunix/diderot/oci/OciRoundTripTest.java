@@ -12,6 +12,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -141,5 +144,114 @@ class OciRoundTripTest {
 
         var e = org.junit.jupiter.api.Assertions.assertThrows(Exception.class, workspace::update);
         assertTrue(e.getMessage().contains("SKILL.md"));
+    }
+
+    /**
+     * Ranges against a real registry. Every release carries different content, so the assertions
+     * prove the right *release* was installed and not merely that some digest matched - and the
+     * expected digest is whatever the push of 1.2.3 returned, never a value written down here.
+     */
+    @Test
+    void aCaretRangeResolvesToTheHighestPublishedRelease() throws Exception {
+        OrasClient oras = new OrasClient(tmp.resolve("oci-cache-3"));
+        String repository = registryHostPort + "/skills/ranged";
+        Map<String, String> pushed = new LinkedHashMap<>();
+        for (String version : List.of("1.0.0", "1.1.0", "1.2.3", "2.0.0", "1.3.0-rc.1")) {
+            pushed.put(version, publish(oras, repository, version, "Release " + version + ".\n"));
+        }
+        // The moving tags a registry always carries beside its releases.
+        publish(oras, repository, "latest", "Whatever is newest.\n");
+        publish(oras, repository, "main", "Whatever is on main.\n");
+
+        Path project = tmp.resolve("project-3");
+        Files.createDirectories(project);
+        Files.writeString(project.resolve("diderot.yaml"), """
+                skills:
+                  - name: ranged
+                    source: oci://%s
+                    version: "^1.0.0"
+                targets: [claude]
+                """.formatted(repository));
+        StringWriter output = new StringWriter();
+        Workspace workspace = new Workspace(project, new GitCli(tmp.resolve("git-cache-3")),
+                oras, new PrintWriter(output, true));
+
+        LockFile lock = workspace.update();
+
+        assertEquals("1.2.3", lock.skills.get(0).tag,
+                "^1.0.0 excludes 2.0.0 as a major bump, 1.3.0-rc.1 as a pre-release, "
+                        + "and latest/main as unparseable");
+        assertEquals(pushed.get("1.2.3"), lock.skills.get(0).resolved,
+                "the lock pins the exact manifest digest that publishing 1.2.3 produced");
+        assertTrue(output.toString().contains(":1.2.3@"),
+                "update names the tag it chose, since a range makes the answer invisible otherwise");
+
+        workspace.install(null);
+        assertEquals("---\nname: ranged\nversion: 1.2.3\n---\nRelease 1.2.3.\n",
+                Files.readString(project.resolve(".claude/skills/ranged/SKILL.md")),
+                "the content on disk is 1.2.3's, so the range resolved to a release and not just a digest");
+        assertEquals(0, workspace.status(null));
+    }
+
+    /** A range nothing satisfies must say what the repository does publish, not just fail. */
+    @Test
+    void anUnsatisfiableRangeListsThePublishedVersions() throws Exception {
+        OrasClient oras = new OrasClient(tmp.resolve("oci-cache-4"));
+        String repository = registryHostPort + "/skills/narrow";
+        publish(oras, repository, "1.0.0", "Release 1.0.0.\n");
+        publish(oras, repository, "2.0.0", "Release 2.0.0.\n");
+        publish(oras, repository, "latest", "Newest.\n");
+
+        Path project = tmp.resolve("project-4");
+        Files.createDirectories(project);
+        Files.writeString(project.resolve("diderot.yaml"), """
+                skills:
+                  - name: narrow
+                    source: oci://%s
+                    version: "^9.0.0"
+                """.formatted(repository));
+        Workspace workspace = new Workspace(project, new GitCli(tmp.resolve("git-cache-4")),
+                oras, new PrintWriter(new StringWriter(), true));
+
+        var e = org.junit.jupiter.api.Assertions.assertThrows(Exception.class, workspace::update);
+        assertTrue(e.getMessage().contains("^9.0.0"), "the range that failed is named: " + e.getMessage());
+        assertTrue(e.getMessage().contains("2.0.0") && e.getMessage().contains("1.0.0"),
+                "and so is what the repository actually publishes: " + e.getMessage());
+    }
+
+    /** A literal tag stays literal: it must not be reinterpreted as a range. */
+    @Test
+    void latestResolvesTheMovingTagRatherThanTheNewestRelease() throws Exception {
+        OrasClient oras = new OrasClient(tmp.resolve("oci-cache-5"));
+        String repository = registryHostPort + "/skills/moving";
+        publish(oras, repository, "1.0.0", "Release 1.0.0.\n");
+        String movingDigest = publish(oras, repository, "latest", "The moving one.\n");
+        publish(oras, repository, "2.0.0", "Release 2.0.0.\n");
+
+        Path project = tmp.resolve("project-5");
+        Files.createDirectories(project);
+        Files.writeString(project.resolve("diderot.yaml"), """
+                skills:
+                  - name: moving
+                    source: oci://%s
+                    version: latest
+                """.formatted(repository));
+        Workspace workspace = new Workspace(project, new GitCli(tmp.resolve("git-cache-5")),
+                oras, new PrintWriter(new StringWriter(), true));
+
+        LockFile lock = workspace.update();
+        assertEquals(movingDigest, lock.skills.get(0).resolved,
+                "`latest` is the tag named latest - not 2.0.0, which is what a range parser "
+                        + "reading it as >=0.0.0 would have picked");
+    }
+
+    /** Publishes one version of a throwaway skill and returns the manifest digest it produced. */
+    private String publish(OrasClient oras, String repository, String tag, String body) throws Exception {
+        String skillName = repository.substring(repository.lastIndexOf('/') + 1);
+        Path dir = tmp.resolve("src-" + skillName + "-" + tag);
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("SKILL.md"),
+                "---\nname: " + skillName + "\nversion: " + tag + "\n---\n" + body);
+        return oras.push(dir, repository + ":" + tag);
     }
 }
