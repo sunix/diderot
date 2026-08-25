@@ -5,7 +5,7 @@ and the implementation work — kept here for new contributors, or anyone curiou
 together. Written in a blog-ish style rather than as formal docs, split into one post per
 chapter so each stays a readable size. Updated on request as the work progresses.*
 
-*Last updated: 2026-08-24.*
+*Last updated: 2026-08-25.*
 
 ## Posts
 
@@ -24,3 +24,9 @@ chapter so each stays a readable size. Updated on request as the work progresses
    matrix, a POSIX `curl | sh` installer that refuses tampered bytes, a JBang catalog
    entry, why signing waits for the enterprise milestone, and the version-reporting bug
    only a packaging milestone would have found.
+4. [All I wanted was versioned skills](doc/making-of/04-releasing-the-skills.md) — using
+   diderot for real to publish an actual library: per-skill versions with release-please
+   monorepo mode, why `latest` beat a floating `v1` (and repaired a latent bug doing so),
+   and the five things in the way — a rename that made a workflow untestable, the same
+   permission wall on a second repository, a release that cannot trigger its own publish,
+   and pushes that aren't idempotent.
