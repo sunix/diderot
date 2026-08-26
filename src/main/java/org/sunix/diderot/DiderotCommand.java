@@ -1,6 +1,8 @@
 package org.sunix.diderot;
 
+import org.sunix.diderot.commands.AddCommand;
 import org.sunix.diderot.commands.InstallCommand;
+import org.sunix.diderot.commands.RemoveCommand;
 import org.sunix.diderot.commands.PushCommand;
 import org.sunix.diderot.commands.StatusCommand;
 import org.sunix.diderot.commands.UpdateCommand;
@@ -12,7 +14,8 @@ import picocli.CommandLine.Spec;
 @TopCommand
 @Command(name = "diderot", mixinStandardHelpOptions = true, versionProvider = BuildVersionProvider.class,
         description = "Package manager for AI agent skills — Helm-style manifests and lockfiles over git and OCI registry sources.",
-        subcommands = { UpdateCommand.class, InstallCommand.class, StatusCommand.class, PushCommand.class })
+        subcommands = { AddCommand.class, RemoveCommand.class, UpdateCommand.class, InstallCommand.class,
+                StatusCommand.class, PushCommand.class })
 public class DiderotCommand implements Runnable {
 
     @Spec

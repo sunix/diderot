@@ -178,6 +178,72 @@ public class Workspace {
         }
     }
 
+    /**
+     * Resolves one manifest entry and nothing else. `add` uses this rather than a full
+     * {@link #update()}: re-resolving the whole manifest to declare one new skill would quietly move
+     * every floating constraint already in the lock, which is not what the user asked for.
+     */
+    public LockedSkill resolve(ManifestSkill skill) throws IOException {
+        requireName(skill);
+        SourceRef ref = SourceRef.parse(skill.source);
+        LockedSkill locked = switch (ref.kind()) {
+            case GIT -> lockGitSkill(skill, ref);
+            case OCI -> lockOciSkill(skill, ref);
+        };
+        String reference = locked.tag == null ? ref.url() : ref.url() + ":" + locked.tag;
+        out.printf("locked %-20s %s@%s (%s)%n",
+                skill.name, reference, shortSha(locked.resolved), locked.digest);
+        return locked;
+    }
+
+    /** Adds or replaces one entry in the lockfile, leaving every other pin exactly as it was. */
+    public void putLockEntry(LockedSkill locked) throws IOException {
+        LockFile lock = lockOrEmpty();
+        lock.skills.removeIf(s -> locked.name.equals(s.name));
+        lock.skills.add(locked);
+        lock.skills.sort(Comparator.comparing(s -> s.name));
+        Yaml.write(lockPath(), lock);
+    }
+
+    /** Drops one entry from the lockfile; false when it was not pinned in the first place. */
+    public boolean dropLockEntry(String name) throws IOException {
+        LockFile lock = lockOrEmpty();
+        if (!lock.skills.removeIf(s -> name.equals(s.name))) {
+            return false;
+        }
+        Yaml.write(lockPath(), lock);
+        return true;
+    }
+
+    /** Deletes the installed copies of a skill and returns the directories that were removed. */
+    public List<Path> uninstall(String name, List<String> targetOverrides) throws IOException {
+        List<Path> removed = new ArrayList<>();
+        for (TargetLayout target : resolveTargets(targetOverrides)) {
+            Path dest = target.skillsDir(root).resolve(name);
+            if (Files.isDirectory(dest)) {
+                deleteRecursively(dest);
+                removed.add(dest);
+            }
+        }
+        return removed;
+    }
+
+    /** Manifest entries with no pin in the lockfile — the ones `install` would silently skip. */
+    public List<String> unlockedSkills() throws IOException {
+        List<String> pinned = lockOrEmpty().skills.stream().map(s -> s.name).toList();
+        List<String> missing = new ArrayList<>();
+        for (ManifestSkill skill : readManifest().skills) {
+            if (skill.name != null && !pinned.contains(skill.name)) {
+                missing.add(skill.name);
+            }
+        }
+        return missing;
+    }
+
+    private LockFile lockOrEmpty() throws IOException {
+        return Files.isRegularFile(lockPath()) ? readLock() : new LockFile();
+    }
+
     /** Compare installed skills against the lockfile; returns the number of problems found. */
     public int status(List<String> targetOverrides) throws IOException {
         LockFile lock = readLock();

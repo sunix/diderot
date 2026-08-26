@@ -67,6 +67,28 @@ Skills travel as OCI artifacts (`artifactType: application/vnd.diderot.skill.v1`
 tar+gzip layer), so they land in any OCI-conformant registry: ghcr.io, Harbor,
 Artifactory, ECR, or a plain [`registry:2`](https://hub.docker.com/_/registry).
 
+### Declaring a skill without editing YAML
+
+```console
+$ diderot add oci://ghcr.io/sunix/skills/making-of --version "^1.0.0"
+added making-of        oci://ghcr.io/sunix/skills/making-of (^1.0.0)
+locked making-of       ghcr.io/sunix/skills/making-of:1.1.0@sha256:8b81085393c4 (tree:89f4bb27c343…)
+run `diderot install` to put it on disk.
+
+$ diderot remove making-of
+removed making-of      diderot.yaml, diderot.lock, 1 installed directory
+  deleted .claude/skills/making-of
+```
+
+The name comes from the last segment of the source unless you pass `--name`. `add` pins **only the
+skill it just added** — re-resolving the whole manifest would quietly move every floating constraint
+already in the lock — and it puts the manifest back untouched if the new source turns out not to
+resolve. `remove --keep-installed` leaves the directories alone.
+
+Both commands edit `diderot.yaml` by splicing lines rather than by rewriting it from a parsed model,
+so comments, key order, indentation and flow sequences like `targets: [claude]` all survive. They
+understand one shape — a block list under `skills:` — and refuse anything else rather than guessing.
+
 ### Versions and ranges
 
 For a registry source, `version:` is either a tag or a **semver range** resolved against the tags
@@ -109,6 +131,8 @@ Then, Helm-style:
 
 | Command | Helm equivalent | Effect |
 |---------|-----------------|--------|
+| `diderot add <source>` | `helm dependency add` | declare a skill in `diderot.yaml` and pin that one in the lock |
+| `diderot remove <name>` | — | undeclare it, unpin it, and delete the installed copies |
 | `diderot update` | `helm dependency update` | resolve constraints, fetch, (re)write `diderot.lock` |
 | `diderot install` | `helm dependency build` | install exactly what the lock pins (by digest) |
 | `diderot status` | — | report drift between installed skills and the lock |
