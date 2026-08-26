@@ -1,7 +1,0 @@
-lockfileVersion: 1
-skills:
-- name: making-of
-  source: oci://ghcr.io/sunix/skills/making-of
-  resolved: sha256:fbfdef0d737528430adaff137b6632492fe38bdedb45ba0f308896601531aadb
-  tag: latest
-  digest: tree:89f4bb27c343d75cc6b9dfa6494bf508f221d89b

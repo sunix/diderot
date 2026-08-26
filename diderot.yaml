@@ -1,5 +1,0 @@
-skills:
-  - name: making-of
-    source: oci://ghcr.io/sunix/skills/making-of
-    version: latest
-targets: [claude]
