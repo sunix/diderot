@@ -532,84 +532,9 @@ The same forty characters as the two `tree:` values above, both of them. Which i
 needs to say: the range picked a release, everything below the choice produced exactly what it
 produced before, no regression.
 
-## What this chapter leaves open
-
-**The native binaries are unproven with this dependency.** `v0.1.0` ships GraalVM builds, so a new
-dependency has to survive `native-image`. The static evidence is about as good as it gets — semver4j
-is 46 KB of pure Java with no reflection, no `Class.forName`, no service loaders, no bundled
-resources and no transitive dependencies — but the machine writing this had 2 GB of RAM available and
-`native-image` peaks above 4 GB, so I did not run it. Recorded as unverified rather than dressed up
-as checked; the release build is what will actually answer it.
-
-**Ranges over git tags don't exist.** [#19](https://github.com/sunix/diderot/issues/19) raised them
-as an eventual want and this chapter did not deliver them: on a git source, `version:` is still a
-branch, a tag or a commit.
-
-**And declaring a skill is still hand-editing YAML**, which is next
-([#24](https://github.com/sunix/diderot/issues/24)). That issue turned up its own trap while being
-written: `diderot.yaml` is authored, `diderot.lock` is generated, and the Jackson round-trip that is
-perfectly correct for the second one **deletes every comment** in the first. So `add` and `remove`
-are not a YAML-append exercise; they are a surgical-editing exercise, which is a different piece of
-work than it looks.
-
-## Postscript: the answer was already on the pull request
-
-I recorded the native binaries as unproven with semver4j aboard, and said the release build was what
-would answer it. That was wrong on the day, and the evidence was sitting on the pull request I wrote
-it in.
-
-diderot's CI has two jobs. I had only ever paid attention to the first:
-
-```yaml
-  native-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '21'
-          distribution: graalvm-community
-      - run: ./mvnw -B package -DskipTests -Dnative
-      - name: The binary has to actually run
-        run: |
-          binary="$(ls target/diderot-*-runner)"
-          "$binary" --version
-          "$binary" --help
-```
-
-A real GraalVM build of the real project, and then the binary has to start. It passed on `2bff5ec`,
-the last commit of that same pull request:
-
-```text
-build: completed/success
-native-smoke: completed/success
-```
-
-So the question had been answered while I was writing that it hadn't. And three times in that
-session I reported "CI is green" without once opening the job list to see what green covered.
-**"CI is green" is not a statement about what was tested** — it is a statement about what somebody
-once configured, and I had never read the configuration.
-
-Being precise about what that job settles is worth the effort, since being imprecise is how I got
-here. `native-image` choking on a reflection-heavy dependency shows up at build time, as classes it
-cannot reach; that failure mode is now ruled out, and the binary starts. But `--version` and
-`--help` never call into semver4j, so no range had yet been resolved *by* a native binary. That last
-check needed a released binary, so here it is — `v0.2.0`'s Linux native image, checksum verified,
-against ghcr.io:
-
-```console
-$ ./diderot-v0.2.0-linux-x86_64 --version
-diderot 0.2.0
-$ ./diderot-v0.2.0-linux-x86_64 update
-locked release-please  …:1.2.0@sha256:f1ecb79525a4 (tree:d87753e53a07325bdeb60f35fb45b929ae4c6b33)
-locked making-of       …:1.1.0@sha256:8b81085393c4 (tree:89f4bb27c343d75cc6b9dfa6494bf508f221d89b)
-$ ./diderot-v0.2.0-linux-x86_64 install && ./diderot-v0.2.0-linux-x86_64 status
-ok  making-of       .claude/skills/making-of
-ok  release-please  .claude/skills/release-please
-```
-
-`^1.0.0` and `~1.1.0` resolved, both digests verified against the tree hashes above, with no JVM
-anywhere. And the failure path too, which is the one that actually exercises the tag listing:
+Everything so far ran against a build of the source, though, which is one rung short of what anyone
+else would do. So the released `v0.2.0` native binary, same two ranges, same digests — and the
+failure path with it, since that is the one that actually calls the tag listing:
 
 ```console
 $ ./diderot-v0.2.0-linux-x86_64 update
@@ -617,35 +542,50 @@ error: Skill 'release-please': no tag in ghcr.io/sunix/skills/release-please sat
        Published versions, newest first: 1.2.0, 1.1.0.
 ```
 
-So semver4j is fine in a native image — which is what I could have said the first time, by reading
-one workflow file.
+Reaching that rung at all corrects something I had written off. I put the native binaries down as
+unproven with semver4j aboard and said the release build would settle it — while diderot's own CI was
+already building a native image and running it, on the very pull request that claim went into.
+`native-smoke` had been green the whole time. **"CI is green" says nothing about what was tested**
+until you read which jobs ran, and I read the word three times without reading the list.
 
-Which is where part four's anti-loop trap surfaces for the third time. `v0.2.0` published, and
-arrived with nothing attached to it:
-
-```console
-$ gh release view v0.2.0 --json assets -q '.assets | length'
-0
-```
-
-The workflow that builds the binaries is `on: release: published`, and a release created by
-release-please with the default `GITHUB_TOKEN` cannot trigger another workflow — the rule part three
-predicted and part four worked around, by chaining the publish job inside the release run. The
-binaries workflow never got that treatment. So every release needs a manual dispatch, and `v0.1.0`'s
-twelve assets, which I had quietly filed as "the release worked", turn out to have arrived the same
-way:
+Then the last rung, on my own machine, upgrading the way the README tells everyone to:
 
 ```console
-$ gh run list --workflow release-binaries.yml --json event
-workflow_dispatch
-workflow_dispatch
+$ diderot --version
+diderot 0.1.0
+$ curl -fsSL https://raw.githubusercontent.com/sunix/diderot/main/install.sh | sh
+Installing diderot v0.2.0 (linux-x86_64) into /root/.local/bin
+diderot 0.2.0
+$ diderot update
+locked making-of  ghcr.io/sunix/skills/making-of:latest@sha256:fbfdef0d7375 (tree:89f4bb27c343…)
+$ diderot install
+installed making-of  -> .claude/skills/making-of (tree:89f4bb27c343… verified)
+$ diderot status
+ok  making-of  .claude/skills/making-of
 ```
 
-`v0.2.0` got its twelve assets the same way, dispatched by hand while writing this. Then the
-workaround part four had already invented got applied where it belonged: the release job now calls
-the binaries workflow inside its own run, so a release stops depending on someone remembering
-([#29](https://github.com/sunix/diderot/pull/29)).
+Which only worked because something had to be repaired by hand first. **`v0.2.0` published with zero
+assets**, so for a while that `curl` was not merely incomplete, it was broken: `install.sh` resolves
+`/releases/latest` to the newest tag and then downloads `releases/download/v0.2.0/…`, which was
+empty. Anyone on `0.1.0` following the documented one-liner would have got a failure.
 
-Two green things taken at face value in a single session. That is the actual lesson, and it is not
-about GraalVM.
+The cause is part four's anti-loop rule turning up a third time. The binaries workflow listens on
+`release: published`, and a Release created by release-please with the default `GITHUB_TOKEN` cannot
+trigger anything, so that event never arrives. `v0.2.0`'s twelve assets were dispatched by hand, and
+`v0.1.0`'s turn out to have arrived the same way — which I had quietly filed as "the release worked".
+[#29](https://github.com/sunix/diderot/pull/29) gives that workflow the treatment part four had
+already invented for ai-skills, chaining it inside the release run, so a release stops depending on
+somebody remembering.
 
+## What this chapter leaves open
+
+**Ranges over git tags don't exist.** [#19](https://github.com/sunix/diderot/issues/19) raised them
+as an eventual want and they did not get built: on a git source, `version:` is still a branch, a tag
+or a commit.
+
+**And declaring a skill is still hand-editing YAML**, which is next
+([#24](https://github.com/sunix/diderot/issues/24)). That issue turned up its own trap while being
+written: `diderot.yaml` is authored, `diderot.lock` is generated, and the Jackson round-trip that is
+perfectly correct for the second one **deletes every comment** in the first. So `add` and `remove`
+are not a YAML-append exercise; they are a surgical-editing exercise, which is a different piece of
+work than it looks.

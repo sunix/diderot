@@ -34,6 +34,6 @@ chapter so each stays a readable size. Updated on request as the work progresses
    part four built the prerequisite for: semver ranges resolved against a registry's tags, the
    throwaway experiment that changed the design (a range parser reads `latest` as "any version",
    and would have resolved it to the newest release instead of the tag), why `install` and
-   `status` needed no changes again, the lockfile learning to say which release it landed on, and
-   an error message that finally names what a repository does publish. With a postscript on taking
-   a green CI at face value without ever reading which jobs it runs.
+   `status` needed no changes again, the lockfile learning to say which release it landed on, an
+   error message that finally names what a repository does publish, and a release that shipped with
+   no binaries at all because a green CI was taken at face value twice.
