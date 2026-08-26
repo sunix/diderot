@@ -3,11 +3,18 @@ name: Release binaries
 # Builds a GraalVM native binary per platform plus one portable uber-jar, and attaches
 # them to a GitHub Release so `install.sh` and JBang have something to download.
 #
-# Trigger note: release-please creates the Release. If it did so with the default
-# GITHUB_TOKEN, GitHub's anti-loop safeguard means this workflow will NOT fire on its own
-# — set a RELEASE_PLEASE_TOKEN secret (a PAT) for that, or just run this workflow
-# manually against the tag with workflow_dispatch.
+# Three ways in, because a Release created by release-please cannot trigger this by itself:
+# GitHub's anti-loop safeguard blocks workflows started by the default GITHUB_TOKEN. So the
+# release workflow calls this one inside its own run (workflow_call) rather than waiting for
+# an event that never arrives. `release: published` still serves a Release a human creates,
+# and workflow_dispatch is there to attach binaries to a tag after the fact.
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to build and attach binaries to (e.g. v0.1.0)"
+        required: true
+        type: string
   release:
     types: [published]
   workflow_dispatch:
