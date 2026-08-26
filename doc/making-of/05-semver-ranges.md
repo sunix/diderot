@@ -50,7 +50,7 @@ version: "^1.0.0"     # of everything published, the highest below 2.0.0
 Those are opposite code paths — one request against one reference, versus list-everything-and-
 compare — so something has to decide which kind each string is. That decision is one method
 returning one boolean, `VersionConstraint.isRange`, consulted from exactly one place. Everything
-else in the feature follows from what it answers, which is why a chapter can be spent on it.
+else in the feature follows from what it answers.
 
 Comparing versions was never the open question. Pre-release ordering and npm's range grammar are a
 classic source of subtle bugs, so that job goes to [semver4j](https://github.com/semver4j/semver4j)
@@ -127,8 +127,8 @@ $ diderot push v2 oci://127.0.0.1:5000/skills/demo:2.0.0
 $ diderot push v1 oci://127.0.0.1:5000/skills/demo:latest
 ```
 
-Which is where the misunderstanding this whole section exists to prevent lives, so it is worth
-stopping on. That third push is not a trick I set up to make a demo work — it is the ordinary thing.
+Which is worth stopping on, because it is where the misunderstanding lives. That third push is not a
+trick I set up to make a demo work — it is the ordinary thing.
 In a registry, `latest` is **a name, not a computation**: nothing derives it from the version
 numbers, it is simply a tag pointing at an artifact, exactly as `1.0.0` is. A publisher pushes it
 deliberately, the same way they push `stable` or `edge`, and `docker pull ubuntu:latest` does not
@@ -325,8 +325,8 @@ carry on if nothing fits. That refusal is the deliberate part — an empty answe
 never allowed to fall through to something plausible-looking, it becomes an error naming the range
 and listing what the repository does publish.
 
-That `listTags` is the genuinely new thing, and it is worth naming because "the tag list" is a phrase
-this chapter leans on. Resolving a literal tag is one request for one reference — *give me the
+That `listTags` is the genuinely new thing, and worth naming, because a range is a question about the
+whole tag list. Resolving a literal tag is one request for one reference — *give me the
 manifest of `demo:1.0.0`*. A range cannot be answered that way, because the question is about
 everything published, so it takes a call diderot had never needed before:
 `GET /v2/<repository>/tags/list`, which is the registry telling you every tag it holds.
@@ -398,9 +398,8 @@ error: Skill 'demo': cannot resolve 127.0.0.1:5000/skills/demo:3.0.0 (Response c
        Published versions, newest first: 2.0.0, 1.0.0.
 ```
 
-Nothing clever happened there, and that is the point of it being in this chapter rather than in a
-bug fix of its own: reading the tag list is something the resolver now has to do anyway, so making a
-failure explain itself cost one call and a `catch`. Literally a catch — the registry error is not
+Nothing clever happened there, which is why it came for free: reading the tag list is something the
+resolver now has to do anyway, so making a failure explain itself cost one call and a `catch`. Literally a catch — the registry error is not
 replaced, it is wrapped with the two facts it was missing:
 
 ```java
@@ -498,7 +497,7 @@ written into the test — it is whatever `publish` returned for `1.2.3`, so the 
 agreeing with a hardcoded value. And the last one reads the file that actually landed on disk, so
 passing means 1.2.3's **content** is installed, not merely that some digest matched.
 
-One of the three exists purely to defend the discovery earlier in this chapter: it publishes `1.0.0`,
+One of the three exists purely to defend the classification rule: it publishes `1.0.0`,
 `latest` and `2.0.0`, then asserts that `version: latest` locks the digest of `latest`.
 
 ```text
@@ -518,7 +517,7 @@ ok  making-of       .claude/skills/making-of
 ok  release-please  .claude/skills/release-please
 ```
 
-Then the check this journal keeps coming back to. That `tree:` value is a git tree hash diderot
+Then the cross-check against real git. That `tree:` value is a git tree hash diderot
 computes itself, in pure Java, without ever opening a `.git` directory — so real git can be asked the
 same question about the same directory, and answer independently:
 
@@ -553,11 +552,11 @@ perfectly correct for the second one **deletes every comment** in the first. So 
 are not a YAML-append exercise; they are a surgical-editing exercise, which is a different piece of
 work than it looks.
 
-## Postscript: "unproven" was already wrong when I wrote it
+## Postscript: the answer was already on the pull request
 
-The section above says the native binaries are unproven with semver4j aboard, and that *"the release
-build is what will actually answer it"*. That was wrong on the day, and the evidence was sitting on
-the pull request I wrote it in.
+I recorded the native binaries as unproven with semver4j aboard, and said the release build was what
+would answer it. That was wrong on the day, and the evidence was sitting on the pull request I wrote
+it in.
 
 diderot's CI has two jobs. I had only ever paid attention to the first:
 
@@ -647,6 +646,6 @@ workaround part four had already invented got applied where it belonged: the rel
 the binaries workflow inside its own run, so a release stops depending on someone remembering
 ([#29](https://github.com/sunix/diderot/pull/29)).
 
-Two green things taken at face value, in one chapter. That is the actual lesson, and it is not about
-GraalVM.
+Two green things taken at face value in a single session. That is the actual lesson, and it is not
+about GraalVM.
 
