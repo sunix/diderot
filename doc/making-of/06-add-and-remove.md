@@ -3,15 +3,31 @@
 *Part six of [diderot's making-of](../../MAKING-OF.md): `add` and `remove`, and why the easy
 implementation of them is destructive.*
 
-## The goal: declaring a skill without opening an editor
+## The goal: declaring a skill, not copying one
 
-Every verb diderot had operated on a manifest somebody had already written by hand. There was no way
-to *acquire* a skill — the first step of using the tool was always "open `diderot.yaml`, get the YAML
-right", which is the one step every other package manager removed years ago.
+Every verb diderot had operated on a manifest somebody had already written by hand, so the first step
+of using it was always "open `diderot.yaml` and get the YAML right" — the step every other package
+manager removed years ago. But the reason it matters here has less to do with typing than with what a
+hand-added skill *is*.
 
-It matters more here than the comparison suggests, because the intended caller is often an agent
-waking up in a throwaway workspace. "Append a mapping to a list in a YAML file" is a surprisingly
-error-prone instruction to give a language model. "Run this command" is not.
+Working on a project and wanting a skill, the path of least resistance is to copy the folder in. It
+works immediately, and then nothing on disk says where it came from, which release it was, or whether
+it still matches what the publisher published. A month later there is no way to answer "is this
+current?" without going and looking by hand. Going through the tool turns the same act into a
+declaration: a source, a version constraint I chose, and a content digest in the lock that `status`
+re-checks on demand — plus, now that ranges resolve, a `tag:` line saying which release `^1.0.0`
+actually landed on.
+
+It also leaves the door open on trust, which the copy has no room for. Signing is not built
+([#25](https://github.com/sunix/diderot/issues/25)), but if it is, the place a signature gets verified
+is the resolve path — the one `add` already goes through. A directory somebody dropped in has nowhere
+to put that answer, and no question to attach it to.
+
+And it is the safer thing to hand to an agent. Not mainly because "append a mapping to a list in a
+YAML file" is an error-prone instruction to give a language model, though it is: what `diderot add`
+leaves behind is three reviewable lines and a digest, where an agent copying files leaves an opaque
+directory nobody can check. If human validation ever belongs anywhere in this, it belongs on a
+declaration.
 
 So the target was two commands. Watch the second line of each: the point is that neither leaves you
 anything to finish by hand.
@@ -32,9 +48,21 @@ alias for `remove`.
 
 ## The file I wasn't allowed to rewrite
 
-The obvious implementation is four lines: read `diderot.yaml` into the `Manifest` model, append a
-`ManifestSkill`, write it back with the mapper `Yaml` already configures. It is also destructive, and
-the fastest way to see that is to try it. Here is a manifest written by a person, comments and all:
+The obvious implementation needs no new concepts at all — `Yaml`, `Manifest` and `ManifestSkill` were
+already there, and they compose exactly the way you would hope:
+
+```java
+Manifest manifest = Yaml.read(manifestPath, Manifest.class);
+ManifestSkill added = new ManifestSkill();
+added.name = name;
+added.source = source;
+added.version = version;
+manifest.skills.add(added);
+Yaml.write(manifestPath, manifest);
+```
+
+Seven lines, no branching, nothing to get wrong. It is also destructive, and the fastest way to see
+that is to run it. Here is a manifest written by a person, comments and all:
 
 ```yaml
 # Skills this project depends on.
@@ -70,9 +98,12 @@ The asymmetry is the thing to hold on to: `diderot.lock` is **generated**, so re
 is exactly right and diderot has always done that. `diderot.yaml` is **authored**. Same file format,
 opposite rules.
 
-## The tour: from a command line to one spliced line
+## Following one `diderot add` from the prompt to the file
 
-Four files, and the way to understand them is to follow a single `diderot add` through.
+None of the new code means much in isolation, so the way in is to take a single `diderot add` from
+the shell prompt through to the line it changes on disk. It passes through four places, each with one
+job: the command that parses the request, the editor that splices the file, the resolver that pins
+what was declared, and the lock writer whose whole responsibility is leaving everything else alone.
 
 It lands in `AddCommand`, which does the parsing and the ordering and delegates every actual
 decision. First it works out a name — `oci://ghcr.io/sunix/skills/making-of` and
@@ -277,15 +308,44 @@ targets: [claude]
 Two edits later, both comments are still there, the blank line is still there, `targets: [claude]` is
 still flow-style, and the version the tool wrote is quoted like the one the human wrote.
 
-## The wart I left in
+## The comment that now lies
 
-Look at that last transcript again. The comment says *"Keep making-of first"*, and `making-of` is
-gone.
+`remove` deletes an entry's own lines and touches nothing around them, and that is where it goes
+wrong. Start from the manifest as it was, and read the second comment:
 
-Working out which comments belong to a list entry is guesswork — a comment above an entry might
-describe it, or introduce the block, or be a note about the entry after it — and guessing wrong means
-deleting somebody's prose. Leaving them is the lesser wrong, but it is a real wart, not a design, and
-somebody removing a skill will read a comment that lies to them.
+```yaml
+# Skills this project depends on.
+# Keep making-of first: the others reference its style rules.
+skills:
+  - name: making-of
+    source: oci://ghcr.io/sunix/skills/making-of
+    version: "^1.0.0"
+  - name: release-please
+    source: oci://ghcr.io/sunix/skills/release-please
+    version: "^1.0.0"
+```
+
+Now `diderot remove making-of`, and read it again:
+
+```yaml
+# Skills this project depends on.
+# Keep making-of first: the others reference its style rules.
+skills:
+  - name: release-please
+    source: oci://ghcr.io/sunix/skills/release-please
+    version: "^1.0.0"
+```
+
+The instruction outlived the thing it was about. Anyone opening the file now is told to keep first a
+skill that is not there, which is worse than no comment at all — a stale instruction gets read as a
+true one.
+
+The fix looks obvious for about a second: delete the comments belonging to the entry. Except that
+"belonging" has no definition. A comment above an entry might describe that entry, or introduce the
+whole block, or be a note about the entry *after* it — and the one here is a fourth thing again, a
+rule about ordering that concerns two entries and belongs to neither. Every guess deletes somebody's
+prose in some file somewhere, and losing prose is worse than leaving a line that has gone out of
+date. So it stays, recorded as a defect rather than argued into a decision.
 
 ## What this chapter leaves open
 
