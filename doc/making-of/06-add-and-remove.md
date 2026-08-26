@@ -7,30 +7,8 @@ implementation of them is destructive.*
 
 Every verb diderot had operated on a manifest somebody had already written by hand, so the first step
 of using it was always "open `diderot.yaml` and get the YAML right" — the step every other package
-manager removed years ago. But the reason it matters here has less to do with typing than with what a
-hand-added skill *is*.
-
-Working on a project and wanting a skill, the path of least resistance is to copy the folder in. It
-works immediately, and then nothing on disk says where it came from, which release it was, or whether
-it still matches what the publisher published. A month later there is no way to answer "is this
-current?" without going and looking by hand. Going through the tool turns the same act into a
-declaration: a source, a version constraint I chose, and a content digest in the lock that `status`
-re-checks on demand — plus, now that ranges resolve, a `tag:` line saying which release `^1.0.0`
-actually landed on.
-
-It also leaves the door open on trust, which the copy has no room for. Signing is not built
-([#25](https://github.com/sunix/diderot/issues/25)), but if it is, the place a signature gets verified
-is the resolve path — the one `add` already goes through. A directory somebody dropped in has nowhere
-to put that answer, and no question to attach it to.
-
-And it is the safer thing to hand to an agent. Not mainly because "append a mapping to a list in a
-YAML file" is an error-prone instruction to give a language model, though it is: what `diderot add`
-leaves behind is three reviewable lines and a digest, where an agent copying files leaves an opaque
-directory nobody can check. If human validation ever belongs anywhere in this, it belongs on a
-declaration.
-
-So the target was two commands. Watch the second line of each: the point is that neither leaves you
-anything to finish by hand.
+manager removed years ago. Two commands remove it here too. Watch the second line of each: the point
+is that neither leaves anything to finish by hand.
 
 ```console
 $ diderot add oci://ghcr.io/sunix/skills/making-of --version "^1.0.0"
@@ -45,6 +23,84 @@ removed making-of      diderot.yaml, diderot.lock, 1 installed directory
 
 The name is inferred from the source's last segment, so the common case needs no `--name`. `rm` is an
 alias for `remove`.
+
+That is the convenience, and on its own it would not deserve a chapter. The reason it was worth
+building now is the second half: a declaration is somewhere a question can be asked, and a copied
+folder is not.
+
+Working on a project and wanting a skill, the path of least resistance is to copy the directory in.
+It works immediately, and then nothing on disk says where it came from, which release it was, or
+whether it still matches what the publisher published. A month later "is this current?" has no answer
+without going and looking by hand. `add` turns the same act into three lines somebody can review, a
+version constraint I chose, and a content digest in the lock that `status` re-checks on demand.
+
+## The question a copied folder cannot hold
+
+None of what follows is built. Signing was written and proven against real Fulcio certificates and
+real Rekor entries in [#6](https://github.com/sunix/diderot/pull/6), then deliberately not merged
+because verification had no certificate identity pinning — it proved *a* valid signature existed for
+a digest, not that the expected publisher made it.
+[#25](https://github.com/sunix/diderot/issues/25) holds what resuming it needs. But sketching the
+developer's side of it is what convinced me `add` had to exist before signing, rather than after.
+
+At `add` time the developer does not yet know who signs this skill, so there is a discovery step —
+the same shape as SSH meeting a host key for the first time:
+
+```console
+$ diderot add oci://ghcr.io/sunix/skills/making-of --version "^1.0.0"
+added making-of        oci://ghcr.io/sunix/skills/making-of (^1.0.0)
+resolving making-of    ghcr.io/sunix/skills/making-of:1.1.0@sha256:8b81085393c4
+
+  signed by   https://github.com/sunix/ai-skills/.github/workflows/push-skill-to-oci.yml@refs/heads/main
+  issuer      https://token.actions.githubusercontent.com
+
+  diderot has no signer recorded for this skill yet.
+  Trust this signer for making-of? [y/N] y
+```
+
+Answering once puts the *expectation* in the manifest — not the signature, which lives in the
+registry beside the artifact and changes with every release, but the policy, which is stable and
+reviewable:
+
+```yaml
+  - name: making-of
+    source: oci://ghcr.io/sunix/skills/making-of
+    version: "^1.0.0"
+    signer:
+      identity: https://github.com/sunix/ai-skills/.github/workflows/push-skill-to-oci.yml@refs/heads/main
+      issuer: https://token.actions.githubusercontent.com
+```
+
+And then the case that makes the whole thing worth the trouble — a release signed by something else,
+because the publisher renamed a workflow, or somebody pushed from a branch:
+
+```console
+$ diderot update
+error: Skill 'making-of': ghcr.io/sunix/skills/making-of:1.2.0 is signed, but not by the expected signer.
+         expected  …/push-skill-to-oci.yml@refs/heads/main
+         found     …/push-skill-to-oci.yml@refs/heads/experiment
+       Nothing was written. If this change is legitimate, update `signer:` in diderot.yaml.
+```
+
+Fail closed, both identities named, and the decision handed back to a human — on a declaration,
+which is a thing a person can read, rather than on a directory, which is not.
+
+Which is where it meets [part five](05-semver-ranges.md), and the argument I did not see until I
+wrote this flow out. **A range with no pinned signer means automatically adopting whatever the
+publisher pushes.** With one, it means automatically adopting only what the *expected* publisher
+pushes. `^1.0.0` is an act of faith renewed at every release until something asks that question
+once, and `add` is where asking it belongs.
+
+It is also why this is the safer thing to hand an agent, and not mainly because "append a mapping to
+a list in a YAML file" is an error-prone instruction to give a language model, though it is. An agent
+running `add` leaves three reviewable lines, a digest, and — one day — a signer a human can approve.
+An agent copying files leaves a directory nobody can check.
+
+Two things I would not decide alone. Whether the lock should also record the identity actually
+verified at lock time, which would make a change of signer visible in a pull request diff where the
+digest alone says nothing. And what happens with no terminal to prompt at: an agent cannot answer
+`[y/N]`, so it needs `--signer`/`--issuer` to state the expectation up front, or an explicit
+`--trust-on-first-use`, with refusal as the default rather than silent trust.
 
 ## The file I wasn't allowed to rewrite
 
