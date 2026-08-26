@@ -10,11 +10,11 @@ name: Release Please
 #   feat!: / "BREAKING CHANGE:" footer → major version bump
 #   chore:, docs:, ci:, etc. → no version bump (but still recorded in changelog)
 #
-# Optional: set the RELEASE_PLEASE_TOKEN secret to a Personal Access Token so that
-# publishing a GitHub Release can trigger downstream workflows (e.g. the future
-# native-binaries build listening on `release: published`). GitHub prevents the default
-# GITHUB_TOKEN from triggering other workflows as an anti-loop safeguard. Falls back to
-# GITHUB_TOKEN if the secret is not set.
+# The native binaries are built by a second job in this same run, not by a workflow
+# listening for `release: published` — GitHub's anti-loop safeguard stops a Release created
+# with the default GITHUB_TOKEN from triggering anything, so that event never arrives. v0.2.0
+# shipped with no assets for exactly that reason. Chaining keeps it working with no PAT to
+# create, store or rotate; RELEASE_PLEASE_TOKEN remains supported but is no longer needed.
 on:
   push:
     branches:
@@ -28,9 +28,25 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           # maven strategy: keeps the pom.xml <version> in sync with releases.
           release-type: maven
+
+  # Runs only when the merged Release PR actually cut a release, and builds the binaries for
+  # the tag it just created. `release_created` and `tag_name` are the root-component outputs
+  # of release-please-action v4.
+  binaries:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-binaries.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
