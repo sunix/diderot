@@ -552,3 +552,72 @@ written: `diderot.yaml` is authored, `diderot.lock` is generated, and the Jackso
 perfectly correct for the second one **deletes every comment** in the first. So `add` and `remove`
 are not a YAML-append exercise; they are a surgical-editing exercise, which is a different piece of
 work than it looks.
+
+## Postscript: "unproven" was already wrong when I wrote it
+
+The section above says the native binaries are unproven with semver4j aboard, and that *"the release
+build is what will actually answer it"*. That was wrong on the day, and the evidence was sitting on
+the pull request I wrote it in.
+
+diderot's CI has two jobs. I had only ever paid attention to the first:
+
+```yaml
+  native-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: graalvm-community
+      - run: ./mvnw -B package -DskipTests -Dnative
+      - name: The binary has to actually run
+        run: |
+          binary="$(ls target/diderot-*-runner)"
+          "$binary" --version
+          "$binary" --help
+```
+
+A real GraalVM build of the real project, and then the binary has to start. It passed on `2bff5ec`,
+the last commit of that same pull request:
+
+```text
+build: completed/success
+native-smoke: completed/success
+```
+
+So the question had been answered while I was writing that it hadn't. And three times in that
+session I reported "CI is green" without once opening the job list to see what green covered.
+**"CI is green" is not a statement about what was tested** — it is a statement about what somebody
+once configured, and I had never read the configuration.
+
+Being precise about what that job settles is worth the effort, since being imprecise is how I got
+here. `native-image` choking on a reflection-heavy dependency shows up at build time, as classes it
+cannot reach; that failure mode is now ruled out, and the binary starts. But `--version` and
+`--help` never call into semver4j, so no range has yet been resolved *by* a native binary. That last
+check is one command against a real registry, and it needs a released binary to run.
+
+Which is where part four's anti-loop trap surfaces for the third time. `v0.2.0` published, and
+arrived with nothing attached to it:
+
+```console
+$ gh release view v0.2.0 --json assets -q '.assets | length'
+0
+```
+
+The workflow that builds the binaries is `on: release: published`, and a release created by
+release-please with the default `GITHUB_TOKEN` cannot trigger another workflow — the rule part three
+predicted and part four worked around, by chaining the publish job inside the release run. The
+binaries workflow never got that treatment. So every release needs a manual dispatch, and `v0.1.0`'s
+twelve assets, which I had quietly filed as "the release worked", turn out to have arrived the same
+way:
+
+```console
+$ gh run list --workflow release-binaries.yml --json event
+workflow_dispatch
+workflow_dispatch
+```
+
+Two green things I had taken at face value, in one chapter. That is the actual lesson, and it is not
+about GraalVM.
+
