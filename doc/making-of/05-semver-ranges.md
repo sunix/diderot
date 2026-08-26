@@ -594,8 +594,32 @@ once configured, and I had never read the configuration.
 Being precise about what that job settles is worth the effort, since being imprecise is how I got
 here. `native-image` choking on a reflection-heavy dependency shows up at build time, as classes it
 cannot reach; that failure mode is now ruled out, and the binary starts. But `--version` and
-`--help` never call into semver4j, so no range has yet been resolved *by* a native binary. That last
-check is one command against a real registry, and it needs a released binary to run.
+`--help` never call into semver4j, so no range had yet been resolved *by* a native binary. That last
+check needed a released binary, so here it is — `v0.2.0`'s Linux native image, checksum verified,
+against ghcr.io:
+
+```console
+$ ./diderot-v0.2.0-linux-x86_64 --version
+diderot 0.2.0
+$ ./diderot-v0.2.0-linux-x86_64 update
+locked release-please  …:1.2.0@sha256:f1ecb79525a4 (tree:d87753e53a07325bdeb60f35fb45b929ae4c6b33)
+locked making-of       …:1.1.0@sha256:8b81085393c4 (tree:89f4bb27c343d75cc6b9dfa6494bf508f221d89b)
+$ ./diderot-v0.2.0-linux-x86_64 install && ./diderot-v0.2.0-linux-x86_64 status
+ok  making-of       .claude/skills/making-of
+ok  release-please  .claude/skills/release-please
+```
+
+`^1.0.0` and `~1.1.0` resolved, both digests verified against the tree hashes above, with no JVM
+anywhere. And the failure path too, which is the one that actually exercises the tag listing:
+
+```console
+$ ./diderot-v0.2.0-linux-x86_64 update
+error: Skill 'release-please': no tag in ghcr.io/sunix/skills/release-please satisfies ^9.0.0.
+       Published versions, newest first: 1.2.0, 1.1.0.
+```
+
+So semver4j is fine in a native image — which is what I could have said the first time, by reading
+one workflow file.
 
 Which is where part four's anti-loop trap surfaces for the third time. `v0.2.0` published, and
 arrived with nothing attached to it:
@@ -618,6 +642,11 @@ workflow_dispatch
 workflow_dispatch
 ```
 
-Two green things I had taken at face value, in one chapter. That is the actual lesson, and it is not
-about GraalVM.
+`v0.2.0` got its twelve assets the same way, dispatched by hand while writing this. Then the
+workaround part four had already invented got applied where it belonged: the release job now calls
+the binaries workflow inside its own run, so a release stops depending on someone remembering
+([#29](https://github.com/sunix/diderot/pull/29)).
+
+Two green things taken at face value, in one chapter. That is the actual lesson, and it is not about
+GraalVM.
 
