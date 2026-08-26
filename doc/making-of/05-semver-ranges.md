@@ -50,7 +50,7 @@ version: "^1.0.0"     # of everything published, the highest below 2.0.0
 Those are opposite code paths — one request against one reference, versus list-everything-and-
 compare — so something has to decide which kind each string is. That decision is one method
 returning one boolean, `VersionConstraint.isRange`, consulted from exactly one place. Everything
-else in the feature follows from what it answers, which is why a chapter can be spent on it.
+else in the feature follows from what it answers.
 
 Comparing versions was never the open question. Pre-release ordering and npm's range grammar are a
 classic source of subtle bugs, so that job goes to [semver4j](https://github.com/semver4j/semver4j)
@@ -127,8 +127,8 @@ $ diderot push v2 oci://127.0.0.1:5000/skills/demo:2.0.0
 $ diderot push v1 oci://127.0.0.1:5000/skills/demo:latest
 ```
 
-Which is where the misunderstanding this whole section exists to prevent lives, so it is worth
-stopping on. That third push is not a trick I set up to make a demo work — it is the ordinary thing.
+Which is worth stopping on, because it is where the misunderstanding lives. That third push is not a
+trick I set up to make a demo work — it is the ordinary thing.
 In a registry, `latest` is **a name, not a computation**: nothing derives it from the version
 numbers, it is simply a tag pointing at an artifact, exactly as `1.0.0` is. A publisher pushes it
 deliberately, the same way they push `stable` or `edge`, and `docker pull ubuntu:latest` does not
@@ -325,8 +325,8 @@ carry on if nothing fits. That refusal is the deliberate part — an empty answe
 never allowed to fall through to something plausible-looking, it becomes an error naming the range
 and listing what the repository does publish.
 
-That `listTags` is the genuinely new thing, and it is worth naming because "the tag list" is a phrase
-this chapter leans on. Resolving a literal tag is one request for one reference — *give me the
+That `listTags` is the genuinely new thing, and worth naming, because a range is a question about the
+whole tag list. Resolving a literal tag is one request for one reference — *give me the
 manifest of `demo:1.0.0`*. A range cannot be answered that way, because the question is about
 everything published, so it takes a call diderot had never needed before:
 `GET /v2/<repository>/tags/list`, which is the registry telling you every tag it holds.
@@ -398,9 +398,8 @@ error: Skill 'demo': cannot resolve 127.0.0.1:5000/skills/demo:3.0.0 (Response c
        Published versions, newest first: 2.0.0, 1.0.0.
 ```
 
-Nothing clever happened there, and that is the point of it being in this chapter rather than in a
-bug fix of its own: reading the tag list is something the resolver now has to do anyway, so making a
-failure explain itself cost one call and a `catch`. Literally a catch — the registry error is not
+Nothing clever happened there, which is why it came for free: reading the tag list is something the
+resolver now has to do anyway, so making a failure explain itself cost one call and a `catch`. Literally a catch — the registry error is not
 replaced, it is wrapped with the two facts it was missing:
 
 ```java
@@ -498,7 +497,7 @@ written into the test — it is whatever `publish` returned for `1.2.3`, so the 
 agreeing with a hardcoded value. And the last one reads the file that actually landed on disk, so
 passing means 1.2.3's **content** is installed, not merely that some digest matched.
 
-One of the three exists purely to defend the discovery earlier in this chapter: it publishes `1.0.0`,
+One of the three exists purely to defend the classification rule: it publishes `1.0.0`,
 `latest` and `2.0.0`, then asserts that `version: latest` locks the digest of `latest`.
 
 ```text
@@ -518,7 +517,7 @@ ok  making-of       .claude/skills/making-of
 ok  release-please  .claude/skills/release-please
 ```
 
-Then the check this journal keeps coming back to. That `tree:` value is a git tree hash diderot
+Then the cross-check against real git. That `tree:` value is a git tree hash diderot
 computes itself, in pure Java, without ever opening a `.git` directory — so real git can be asked the
 same question about the same directory, and answer independently:
 
@@ -533,18 +532,56 @@ The same forty characters as the two `tree:` values above, both of them. Which i
 needs to say: the range picked a release, everything below the choice produced exactly what it
 produced before, no regression.
 
+Everything so far ran against a build of the source, though, which is one rung short of what anyone
+else would do. So the released `v0.2.0` native binary, same two ranges, same digests — and the
+failure path with it, since that is the one that actually calls the tag listing:
+
+```console
+$ ./diderot-v0.2.0-linux-x86_64 update
+error: Skill 'release-please': no tag in ghcr.io/sunix/skills/release-please satisfies ^9.0.0.
+       Published versions, newest first: 1.2.0, 1.1.0.
+```
+
+Reaching that rung at all corrects something I had written off. I put the native binaries down as
+unproven with semver4j aboard and said the release build would settle it — while diderot's own CI was
+already building a native image and running it, on the very pull request that claim went into.
+`native-smoke` had been green the whole time. **"CI is green" says nothing about what was tested**
+until you read which jobs ran, and I read the word three times without reading the list.
+
+Then the last rung, on my own machine, upgrading the way the README tells everyone to:
+
+```console
+$ diderot --version
+diderot 0.1.0
+$ curl -fsSL https://raw.githubusercontent.com/sunix/diderot/main/install.sh | sh
+Installing diderot v0.2.0 (linux-x86_64) into /root/.local/bin
+diderot 0.2.0
+$ diderot update
+locked making-of  ghcr.io/sunix/skills/making-of:latest@sha256:fbfdef0d7375 (tree:89f4bb27c343…)
+$ diderot install
+installed making-of  -> .claude/skills/making-of (tree:89f4bb27c343… verified)
+$ diderot status
+ok  making-of  .claude/skills/making-of
+```
+
+Which only worked because something had to be repaired by hand first. **`v0.2.0` published with zero
+assets**, so for a while that `curl` was not merely incomplete, it was broken: `install.sh` resolves
+`/releases/latest` to the newest tag and then downloads `releases/download/v0.2.0/…`, which was
+empty. Anyone on `0.1.0` following the documented one-liner would have got a failure.
+
+The cause is part four's anti-loop rule turning up a third time. The binaries workflow listens on
+`release: published`, and a Release created by release-please with the default `GITHUB_TOKEN` cannot
+trigger anything, so that event never arrives. `v0.2.0`'s twelve assets were dispatched by hand, and
+`v0.1.0`'s turn out to have arrived the same way — which I had quietly filed as "the release worked".
+[#29](https://github.com/sunix/diderot/pull/29) gives that workflow the treatment part four had
+already invented for ai-skills, chaining it inside the release run, so a release stops depending on
+somebody remembering.
+
 ## What this chapter leaves open
 
-**The native binaries are unproven with this dependency.** `v0.1.0` ships GraalVM builds, so a new
-dependency has to survive `native-image`. The static evidence is about as good as it gets — semver4j
-is 46 KB of pure Java with no reflection, no `Class.forName`, no service loaders, no bundled
-resources and no transitive dependencies — but the machine writing this had 2 GB of RAM available and
-`native-image` peaks above 4 GB, so I did not run it. Recorded as unverified rather than dressed up
-as checked; the release build is what will actually answer it.
-
 **Ranges over git tags don't exist.** [#19](https://github.com/sunix/diderot/issues/19) raised them
-as an eventual want and this chapter did not deliver them: on a git source, `version:` is still a
-branch, a tag or a commit.
+as an eventual want and they did not get built: on a git source, `version:` is still a branch, a tag
+or a commit.
 
 **And declaring a skill is still hand-editing YAML**, which is next
 ([#24](https://github.com/sunix/diderot/issues/24)). That issue turned up its own trap while being
