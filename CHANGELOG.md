@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/sunix/diderot/compare/v0.2.0...v0.3.0) (2026-08-27)
+
+
+### Features
+
+* add `diderot add` and `diderot remove` ([#34](https://github.com/sunix/diderot/issues/34)) ([2729967](https://github.com/sunix/diderot/commit/2729967b028d360dfb911d9ca7f0719477c00fb7))
+
+
+### Documentation
+
+* correct chapter five's open section, and what it was run against ([#28](https://github.com/sunix/diderot/issues/28)) ([16379c5](https://github.com/sunix/diderot/commit/16379c5bed22dfd486bc6a3ee7a20aa6295950e6))
+
 ## [0.2.0](https://github.com/sunix/diderot/compare/v0.1.0...v0.2.0) (2026-08-25)
 
 
