@@ -495,6 +495,39 @@ Two edits against a file written by hand, a real registry on the other end, and 
 what the tests had already pinned in isolation. What the file looked like afterwards is worth its own
 section, because that is where the one thing this does badly shows up.
 
+One more case, because it is the one somebody meets first and the least like the tests: an empty
+directory, no manifest at all. Watch the file `add` writes for itself, and where `install` decides to
+put things:
+
+```console
+$ ls -A
+$ diderot add oci://ghcr.io/sunix/skills/making-of
+added making-of      oci://ghcr.io/sunix/skills/making-of (latest)
+locked making-of     ghcr.io/…/making-of:latest@sha256:fbfdef0d7375 (tree:89f4bb27c343…)
+run `diderot install` to put it on disk.
+$ cat diderot.yaml
+skills:
+  - name: making-of
+    source: oci://ghcr.io/sunix/skills/making-of
+    version: latest
+
+targets: [claude]
+$ diderot install && diderot status
+installed making-of  -> .claude/skills/making-of (tree:89f4bb27c343… verified)
+ok       making-of   .claude/skills/making-of
+```
+
+Two details in that manifest were wrong until somebody asked. `version: latest` used to read
+`version: HEAD`, because `HEAD` is the field default on `ManifestSkill` and `add` never overrode it —
+it resolved correctly, since the resolver maps `HEAD` to `latest` for a registry, so the entry did the
+right thing while saying git vocabulary in an `oci://` reference. And `targets: [claude]` was not
+written at all: `install` put the skill in `.claude/skills/` because that is the model's default, so
+the file worked by an assumption visible only in the code.
+
+Neither broke anything, which is why no test caught them. Both are the same defect underneath — a
+generated file saying less than it does — and both were found by writing down how to use the thing
+rather than by testing it.
+
 ## The comment that now lies
 
 `remove` deletes an entry's own lines and touches nothing around them, and that is where it goes
