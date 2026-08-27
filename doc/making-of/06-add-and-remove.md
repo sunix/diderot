@@ -261,10 +261,35 @@ Back in `AddCommand`, the manifest is written and only then resolved, through a 
 public LockedSkill resolve(ManifestSkill skill) throws IOException {
 ```
 
-That javadoc is the whole argument. `update()` was right there and reusing it would have been one
-line, but a manifest holding `version: latest` or `version: "^1.0.0"` would have had those pins moved
-as a side effect of adding something unrelated. `resolve` does one skill; `putLockEntry` merges it
-into the lock and leaves every other entry byte for byte as it found it.
+That javadoc is the whole argument, and it is worth being exact about. `update()` reads the manifest,
+resolves **every** entry in it, and writes a fresh `diderot.lock` from the results — which is right,
+because that is what `update` is for. Reusing it here would have been one line.
+
+But adding one skill has to leave the other entries in the lock exactly as they were. Suppose the
+manifest already declares `version: latest` and `version: "^1.0.0"` for two other skills: both are
+constraints that resolve to whatever the registry offers *today*, so a full re-resolution would repin
+them to newer releases. Nobody asked for that. Someone runs `diderot add` for one thing and three
+skills move, the diff shows digests they never touched, and if the lock is not read carefully it goes
+unnoticed until an agent behaves differently.
+
+So `resolve` does one entry and returns it, and `putLockEntry` is the half that does the leaving alone:
+
+```java
+/** Adds or replaces one entry in the lockfile, leaving every other pin exactly as it was. */
+public void putLockEntry(LockedSkill locked) throws IOException {
+    LockFile lock = lockOrEmpty();
+    lock.skills.removeIf(s -> locked.name.equals(s.name));
+    lock.skills.add(locked);
+    lock.skills.sort(Comparator.comparing(s -> s.name));
+    Yaml.write(lockPath(), lock);
+}
+```
+
+`lockOrEmpty` reads the existing lock or starts a fresh one when there is none, the `removeIf` makes
+the write idempotent — adding a skill already pinned replaces its entry rather than duplicating it —
+and the sort keeps the file stable so a diff only ever shows the entry that actually changed. Every
+other `LockedSkill` is carried across untouched, digest and all, because they are never re-resolved:
+they are simply the objects that were already there.
 
 `remove` runs the same layers in reverse, with one ordering trap: the installed directories are
 derived from the manifest's `targets:`, so they have to be worked out **before** the declaration is
