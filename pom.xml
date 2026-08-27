@@ -69,6 +69,30 @@
             <groupId>dev.sigstore</groupId>
             <artifactId>sigstore-java</artifactId>
             <version>2.2.0</version>
+            <exclusions>
+                <!-- The shaded netty is a copy of netty under io.grpc.netty.shaded.*, a namespace
+                     the Quarkus netty extension never sees - so its logging-probe class initialisers
+                     run at image build time and die parsing absent log4j classes, and no
+                     initialize-at-run-time flag helps, because the clinit still has to be *compiled*
+                     into the image and Quarkus links everything at build time. The unshaded
+                     grpc-netty below is API-identical and rides on the netty Quarkus manages and
+                     substitutes. -->
+                <exclusion>
+                    <groupId>io.grpc</groupId>
+                    <artifactId>grpc-netty-shaded</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty</artifactId>
+            <version>1.81.0</version>
+        </dependency>
+        <dependency>
+            <!-- Brings the native-image substitutions for netty, including the InternalLoggerFactory
+                 one that removes the logging probe entirely. -->
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-netty</artifactId>
         </dependency>
         <dependency>
             <!-- sigstore-java reaches google-http-client's Apache transport, which needs the
