@@ -43,3 +43,8 @@ nb-configuration.xml
 /.quarkus/cli/plugins/
 # TLS Certificates
 .certs/
+
+# Skills installed by diderot itself. Materialised content, rebuilt by `diderot install`
+# from the digests in diderot.lock - the lock belongs in git, a second copy of the bytes
+# does not.
+.claude/skills/
