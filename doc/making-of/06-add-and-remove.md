@@ -3,48 +3,88 @@
 *Part six of [diderot's making-of](../../MAKING-OF.md): `add` and `remove`, and why the easy
 implementation of them is destructive.*
 
-## The goal: declaring a skill, not copying one
+## The goal: a command that adds a skill to `diderot.yaml`
 
-Every verb diderot had operated on a manifest somebody had already written by hand, so the first step
-of using it was always "open `diderot.yaml` and get the YAML right" — the step every other package
-manager removed years ago. Two commands remove it here too. Watch the second line of each: the point
-is that neither leaves anything to finish by hand.
+Declaring a skill meant opening the manifest and typing the entry. Removing one meant deleting it and
+remembering the lock. That is all `add` and `remove` are for.
 
-```console
-$ diderot add oci://ghcr.io/sunix/skills/making-of --version "^1.0.0"
-added making-of        oci://ghcr.io/sunix/skills/making-of (^1.0.0)
-locked making-of       ghcr.io/sunix/skills/making-of:1.1.0@sha256:8b81085393c4 (tree:89f4bb27c343…)
-run `diderot install` to put it on disk.
+Start from a project that already depends on one skill — and note the comments, because they matter
+later:
 
-$ diderot remove making-of
-removed making-of      diderot.yaml, diderot.lock, 1 installed directory
-  deleted .claude/skills/making-of
+```yaml
+# Skills this project depends on.
+# Keep making-of first: the others reference its style rules.
+skills:
+  - name: making-of          # the journal skill
+    source: oci://ghcr.io/sunix/skills/making-of
+    version: "^1.0.0"
+
+targets: [claude]
 ```
 
-The name is inferred from the source's last segment, so the common case needs no `--name`. `rm` is an
-alias for `remove`.
+One command declares a second one. The name is inferred from the source's last segment, so the common
+case needs no `--name`:
 
-That is the convenience, and on its own it would not deserve a chapter. The reason it was worth
-building now is the second half: a declaration is somewhere a question can be asked, and a copied
-folder is not.
+```console
+$ diderot add oci://ghcr.io/sunix/skills/release-please --version "^1.0.0"
+added release-please       oci://ghcr.io/sunix/skills/release-please (^1.0.0)
+locked release-please      ghcr.io/…/release-please:1.2.0@sha256:f1ecb79525a4 (tree:d87753e53a07…)
+run `diderot install` to put it on disk.
+```
 
-Working on a project and wanting a skill, the path of least resistance is to copy the directory in.
-It works immediately, and then nothing on disk says where it came from, which release it was, or
-whether it still matches what the publisher published. A month later "is this current?" has no answer
-without going and looking by hand. `add` turns the same act into three lines somebody can review, a
-version constraint I chose, and a content digest in the lock that `status` re-checks on demand.
+And the manifest afterwards:
 
-## The question a copied folder cannot hold
+```yaml
+# Skills this project depends on.
+# Keep making-of first: the others reference its style rules.
+skills:
+  - name: making-of          # the journal skill
+    source: oci://ghcr.io/sunix/skills/making-of
+    version: "^1.0.0"
+  - name: release-please
+    source: oci://ghcr.io/sunix/skills/release-please
+    version: "^1.0.0"
 
-None of what follows is built. Signing was written and proven against real Fulcio certificates and
-real Rekor entries in [#6](https://github.com/sunix/diderot/pull/6), then deliberately not merged
-because verification had no certificate identity pinning — it proved *a* valid signature existed for
-a digest, not that the expected publisher made it.
-[#25](https://github.com/sunix/diderot/issues/25) holds what resuming it needs. But sketching the
-developer's side of it is what convinced me `add` had to exist before signing, rather than after.
+targets: [claude]
+```
 
-At `add` time the developer does not yet know who signs this skill, so there is a discovery step —
-the same shape as SSH meeting a host key for the first time:
+Three lines added, nothing else moved. `remove` is the same in reverse, `rm` is an alias for it, and
+it reports what it actually found rather than what it assumed — here the skill had been declared and
+pinned but never installed, so there was no directory to delete and it does not claim there was:
+
+```console
+$ diderot remove release-please
+removed release-please     diderot.yaml, diderot.lock
+```
+
+## Why a command, when the file is right there
+
+Editing that file by hand gets you the same declaration in the end: the same source, the same
+constraint, the same content digest in the lock once `update` runs. What it also gets you is every
+way of getting it slightly wrong. A mapping indented one space off. `sources:` instead of `source:`.
+A name that collides with an entry further down. A typo in the registry path that looks fine and only
+fails at the next `update`, by which time you have stopped thinking about it. And the lock, which is
+easy to forget entirely, since the manifest looks finished without it.
+
+`add` closes all of those in one stroke, and not by being careful with the YAML — by **resolving
+before it finishes**. A bad path fails immediately, with the file put back as it was; a duplicate
+name is refused and told which source it already points at; the lock is written in the same breath,
+so forgetting it is not an available mistake. That is worth having on its own.
+
+But it is still the smaller half of why it got built now.
+
+The case that isn't small is the one arriving next. None of what follows is built: signing was
+written and proven against real Fulcio certificates and real Rekor entries in
+[#6](https://github.com/sunix/diderot/pull/6), then deliberately not merged because verification had
+no certificate identity pinning — it proved *a* valid signature existed for a digest, not that the
+expected publisher made it. [#25](https://github.com/sunix/diderot/issues/25) holds what resuming it
+needs.
+
+But sketching the developer's side of it produced an argument sharper than convenience. **You cannot
+type an identity you do not know yet.** Who signed a skill is a fact about the artifact, discovered by
+pulling it and reading the signature attached to it in the registry. Somebody editing YAML in an
+editor has nothing to discover it with; a command does. So `add` grows a discovery step, the same
+shape as SSH meeting a host key for the first time:
 
 ```console
 $ diderot add oci://ghcr.io/sunix/skills/making-of --version "^1.0.0"
@@ -82,8 +122,8 @@ error: Skill 'making-of': ghcr.io/sunix/skills/making-of:1.2.0 is signed, but no
        Nothing was written. If this change is legitimate, update `signer:` in diderot.yaml.
 ```
 
-Fail closed, both identities named, and the decision handed back to a human — on a declaration,
-which is a thing a person can read, rather than on a directory, which is not.
+Fail closed, both identities named, nothing written, and the decision handed back to a human — as a
+one-line change to a file in version control, where a reviewer sees it too.
 
 Which is where it meets [part five](05-semver-ranges.md), and the argument I did not see until I
 wrote this flow out. **A range with no pinned signer means automatically adopting whatever the
@@ -118,20 +158,7 @@ Yaml.write(manifestPath, manifest);
 ```
 
 Seven lines, no branching, nothing to get wrong. It is also destructive, and the fastest way to see
-that is to run it. Here is a manifest written by a person, comments and all:
-
-```yaml
-# Skills this project depends on.
-# Keep making-of first: the others reference its style rules.
-skills:
-  - name: making-of          # the journal skill
-    source: oci://ghcr.io/sunix/skills/making-of
-    version: "^1.0.0"
-
-targets: [claude]
-```
-
-And here is what came back out of that round-trip, with one skill added:
+that is to run it against the commented manifest from earlier. Here is what comes back:
 
 ```yaml
 skills:
@@ -350,19 +377,11 @@ ok       release-please       .claude/skills/release-please
 $ diderot remove making-of
 removed making-of      diderot.yaml, diderot.lock, 1 installed directory
   deleted .claude/skills/making-of
-$ cat diderot.yaml
-# Skills this project depends on.
-# Keep making-of first: the others reference its style rules.
-skills:
-  - name: release-please
-    source: oci://ghcr.io/sunix/skills/release-please
-    version: "^1.0.0"
-
-targets: [claude]
 ```
 
-Two edits later, both comments are still there, the blank line is still there, `targets: [claude]` is
-still flow-style, and the version the tool wrote is quoted like the one the human wrote.
+Two edits against a file written by hand, a real registry on the other end, and every digest matching
+what the tests had already pinned in isolation. What the file looked like afterwards is worth its own
+section, because that is where the one thing this does badly shows up.
 
 ## The comment that now lies
 
