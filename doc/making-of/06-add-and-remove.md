@@ -131,16 +131,26 @@ publisher pushes.** With one, it means automatically adopting only what the *exp
 pushes. `^1.0.0` is an act of faith renewed at every release until something asks that question
 once, and `add` is where asking it belongs.
 
-It is also why this is the safer thing to hand an agent, and not mainly because "append a mapping to
-a list in a YAML file" is an error-prone instruction to give a language model, though it is. An agent
-running `add` leaves three reviewable lines, a digest, and — one day — a signer a human can approve.
-An agent copying files leaves a directory nobody can check.
+There is a governance point underneath this that took saying out loud. A skill is not a dependency
+like a library, sitting there until called: it is a **capability the agent will act on**. So an agent
+adding skills is an agent extending itself, and that is exactly where a person belongs in the loop.
+An agent can find a skill, propose it, run the command — it should not be the thing that decides its
+own capabilities are trustworthy.
 
-Two things I would not decide alone. Whether the lock should also record the identity actually
-verified at lock time, which would make a change of signer visible in a pull request diff where the
-digest alone says nothing. And what happens with no terminal to prompt at: an agent cannot answer
-`[y/N]`, so it needs `--signer`/`--issuer` to state the expectation up front, or an explicit
-`--trust-on-first-use`, with refusal as the default rather than silent trust.
+Which is an argument for `add`, not against it. What an agent running `add` produces is a proposal:
+three lines in a file under version control, a digest, and one day a signer, none of which mean
+anything until somebody reads them. What an agent copying a directory into `.claude/skills/` produces
+is a fait accompli, with nothing to review and nowhere to review it.
+
+It also settles what looked like a loose end. With no terminal there is nobody to answer `[y/N]`, so
+`add` would need `--signer`/`--issuer` to state the expectation up front, or an explicit
+`--trust-on-first-use` — and the default has to be **refusal**, because the case where nobody can
+answer is precisely the case where nothing should be quietly trusted.
+
+One thing I would still not decide alone: whether the lock should also record the identity actually
+verified at lock time. It would make a change of signer visible in a pull request diff, where the
+digest alone says nothing — which is the same instinct as the rest of this, keeping the human's view
+of it in a file rather than in a moment.
 
 ## The file I wasn't allowed to rewrite
 
