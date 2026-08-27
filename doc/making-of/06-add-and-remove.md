@@ -152,7 +152,7 @@ verified at lock time. It would make a change of signer visible in a pull reques
 digest alone says nothing — which is the same instinct as the rest of this, keeping the human's view
 of it in a file rather than in a moment.
 
-## The file I wasn't allowed to rewrite
+## Seven lines that delete your comments
 
 The obvious implementation needs no new concepts at all — `Yaml`, `Manifest` and `ManifestSkill` were
 already there, and they compose exactly the way you would hope:
@@ -292,27 +292,91 @@ those forced quotes as evidence of a preference and started quoting everything a
 what somebody chose, not what the format compelled; the fix is that last comparison, which asks
 whether the value would have survived unquoted before counting it as a choice.
 
-The other correction came from `remove`. I had `skillsHeader` refuse every inline list, which meant
+The other correction came from `remove`. I had `skillsHeader` refuse every inline list, so
 `diderot remove nope` on a manifest containing `skills: []` failed with a lecture about rewriting it
-as a block instead of saying there was nothing to remove. An empty inline list holds nothing an author
-could lose, so it is converted; a *populated* one is still refused, because treating it as empty would
-have `remove` report nothing to remove for a skill that is plainly declared. Two shapes that look
-alike and want opposite handling.
+as a block, instead of simply saying there was nothing to remove. The whole fix is the last clause of
+one condition:
 
-## Three behaviours that don't show up in a diff
+```java
+String rest = line.substring("skills:".length()).trim();
+// `skills: []` holds nothing an author could lose, so it is workable: reads see no
+// entries and `add` converts the line to a block. A *populated* inline list is refused,
+// because pretending it is empty would have `remove` report nothing to remove for a
+// skill that is plainly declared.
+if (!rest.isEmpty() && !rest.startsWith("#") && !rest.equals("[]")) {
+    throw new IllegalStateException("diderot.yaml declares skills inline (`" + line.trim()
+            + "`). Rewrite it as a block list, one `- name:` per line, and try again.");
+}
+```
 
-**A failed resolution puts the file back.** `add` writes the manifest before it resolves, which is the
-right order — the entry should be real before anything tries to pin it — but it means a source that
-turns out to have no `SKILL.md` would leave a declaration nothing can satisfy. So the original text is
-held in a local and rewritten on any failure, including the case where the file did not exist and has
-to be deleted again.
+`[]` holds nothing an author could lose, so it is workable — reads see no entries, and `add` rewrites
+the line as a block header. A *populated* inline list stays refused, and the comment says why in the
+place somebody would be tempted to relax it: pretending it is empty would have `remove` report
+nothing to remove for a skill that is plainly declared. Two shapes that look nearly identical and
+want opposite handling.
 
-**A duplicate name is refused with the source it already has.** Silently ending up with two entries
-for one skill is worse than an error, and an error that says *which* source the existing entry points
-at is worth three extra words.
+## Leaving nothing for you to find out later
 
-**`add` says what it did not do.** Pinning only the new skill means the lock can legitimately be
-missing entries the manifest declares, and `install` would skip them without comment. So it says so:
+Three decisions in `AddCommand` that are all the same decision, really: never leave the project in a
+state you have to discover for yourself.
+
+The first is about the order of operations. `add` writes the manifest *before* it resolves, which is
+the right way round — the entry should be real before anything tries to pin it — and it means a source
+that turns out to have no `SKILL.md` would leave a declaration nothing can satisfy. So the original
+text is kept in a local, and the `catch` is the interesting part:
+
+```java
+} catch (Exception e) {
+    restore(manifestPath, original);
+    spec.commandLine().getErr().println("error: " + e.getMessage());
+    return 1;
+}
+```
+
+`restore` is deliberately dumb, and look at what it does with the empty string:
+
+```java
+private void restore(Path manifestPath, String original) {
+    if (original == null) {
+        return;
+    }
+    try {
+        if (original.isEmpty()) {
+            Files.deleteIfExists(manifestPath);
+        } else {
+            Files.writeString(manifestPath, original);
+        }
+    } catch (Exception ignored) {
+        spec.commandLine().getErr().println(
+                "warning: could not restore " + manifestPath + " — check it by hand.");
+    }
+}
+```
+
+`original` is `null` when nothing was read yet, empty when there was no manifest at all, and the file's
+text otherwise — three states, three answers, and the empty one matters: `diderot add` in a fresh
+directory that then fails should not leave a `diderot.yaml` behind. And when the restore itself fails,
+it says so rather than swallowing it, because at that point the only honest thing is to tell you to go
+and look.
+
+The second is the duplicate. Two entries for one name is worse than an error, so `add` checks before
+it writes anything:
+
+```java
+String existing = editor.sourceOf(skillName).orElse(null);
+if (existing != null) {
+    throw new IllegalStateException("Skill '" + skillName + "' is already declared, from "
+            + existing + ". Change its version in diderot.yaml, or remove it first.");
+}
+```
+
+The value of that is entirely in `existing` being in the message. "Already declared" sends you to read
+the file; "already declared, from oci://…/making-of" is often all you needed, because the usual cause
+is adding the same skill from a slightly different source and not realising.
+
+The third costs two lines and closes the gap that pinning-only-the-new-skill opens: the lock can now
+legitimately be missing entries the manifest declares, and `install` would skip them without a word.
+So `add` says so on its way out.
 
 ```text
 note: not pinned in diderot.lock yet: making-of — run `diderot update`.
