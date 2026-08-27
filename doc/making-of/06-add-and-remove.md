@@ -1,7 +1,7 @@
-# Two commands, and a file I wasn't allowed to rewrite
+# Adding the `add` and `remove` commands
 
-*Part six of [diderot's making-of](../../MAKING-OF.md): `add` and `remove`, and why the easy
-implementation of them is destructive.*
+*Part six of [diderot's making-of](../../MAKING-OF.md): declaring a skill without hand-editing
+`diderot.yaml`, and why the easy implementation of that is destructive.*
 
 ## The goal: a command that adds a skill to `diderot.yaml`
 
