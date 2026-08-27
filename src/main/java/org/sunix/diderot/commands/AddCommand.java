@@ -66,9 +66,13 @@ public class AddCommand implements Callable<Integer> {
             ManifestSkill skill = new ManifestSkill();
             skill.name = skillName;
             skill.source = source;
-            if (version != null && !version.isBlank()) {
-                skill.version = version;
-            }
+            // With no --version, write the default this kind of source actually uses. `HEAD` in an
+            // oci:// entry resolves correctly - the resolver maps it to `latest` - and reads as git
+            // vocabulary in a registry reference, so the manifest would mean one thing and say
+            // another.
+            skill.version = version != null && !version.isBlank()
+                    ? version
+                    : ref.kind() == SourceRef.Kind.OCI ? "latest" : "HEAD";
 
             // Write the manifest first so the entry is real, then pin it. If pinning fails - a
             // repository that isn't there, an artifact with no SKILL.md - put the file back exactly

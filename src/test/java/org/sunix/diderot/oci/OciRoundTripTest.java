@@ -245,6 +245,30 @@ class OciRoundTripTest {
                         + "reading it as >=0.0.0 would have picked");
     }
 
+    /**
+     * `add` with no `--version` has to write the default the *source* uses, not the model's. Writing
+     * git's `HEAD` into an oci:// entry resolves fine and reads as the wrong vocabulary.
+     */
+    @Test
+    void addWithNoVersionWritesLatestForARegistrySource() throws Exception {
+        OrasClient oras = new OrasClient(tmp.resolve("oci-cache-6"));
+        String repository = registryHostPort + "/skills/defaulted";
+        publish(oras, repository, "latest", "Whatever is newest.\n");
+
+        Path project = tmp.resolve("project-6");
+        Files.createDirectories(project);
+        StringWriter errors = new StringWriter();
+        int code = new picocli.CommandLine(new org.sunix.diderot.commands.AddCommand())
+                .setOut(new PrintWriter(new StringWriter(), true))
+                .setErr(new PrintWriter(errors, true))
+                .execute("oci://" + repository, "-C", project.toString());
+
+        assertEquals(0, code, errors.toString());
+        assertTrue(Files.readString(project.resolve("diderot.yaml")).contains("version: latest"),
+                "a registry's moving default is `latest`: "
+                        + Files.readString(project.resolve("diderot.yaml")));
+    }
+
     /** Publishes one version of a throwaway skill and returns the manifest digest it produced. */
     private String publish(OrasClient oras, String repository, String tag, String body) throws Exception {
         String skillName = repository.substring(repository.lastIndexOf('/') + 1);

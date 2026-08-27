@@ -99,6 +99,14 @@ class AddRemoveTest {
                 "the first skill is still pinned to exactly the commit it was pinned to");
     }
 
+    @Test
+    void withNoVersionAGitSourceGetsHead() throws Exception {
+        assertEquals(0, run(new AddCommand(), source("skills/documentation/making-of"),
+                "-C", project.toString()), err.toString());
+        assertTrue(Files.readString(project.resolve("diderot.yaml")).contains("version: HEAD"),
+                "git's moving default is HEAD: " + Files.readString(project.resolve("diderot.yaml")));
+    }
+
     /** Declaring something that cannot be resolved must not leave the declaration behind. */
     @Test
     void aFailedResolutionRollsTheManifestBack() throws Exception {
