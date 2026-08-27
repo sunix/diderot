@@ -73,9 +73,12 @@ class AddRemoveTest {
                   - name: making-of
                     source: %s
                     version: main
+
+                targets: [claude]
                 """.formatted(source("skills/documentation/making-of")),
                 Files.readString(project.resolve("diderot.yaml")),
-                "the name came from the last path segment, no --name needed");
+                "the name came from the last path segment, and a manifest authored from nothing "
+                        + "states its targets instead of relying on the model's default");
 
         String lock = Files.readString(project.resolve("diderot.lock"));
         assertTrue(lock.contains("name: making-of"), lock);

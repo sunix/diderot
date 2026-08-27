@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 import org.sunix.diderot.core.LockFile.LockedSkill;
+import org.sunix.diderot.core.Manifest;
 import org.sunix.diderot.core.Manifest.ManifestSkill;
 import org.sunix.diderot.core.ManifestEditor;
 import org.sunix.diderot.core.SourceRef;
@@ -78,7 +79,14 @@ public class AddCommand implements Callable<Integer> {
             // repository that isn't there, an artifact with no SKILL.md - put the file back exactly
             // as it was rather than leaving a declaration nothing can resolve.
             editor.add(skillName, source, skill.version);
-            Files.writeString(manifestPath, editor.text());
+            String text = editor.text();
+            if (original.isEmpty()) {
+                // A manifest this command authored from nothing should say where skills go, rather
+                // than working by a default that is only visible in the code. Taken from the model
+                // so the written line and the assumed one cannot drift apart.
+                text += "\ntargets: [" + String.join(", ", new Manifest().targets) + "]\n";
+            }
+            Files.writeString(manifestPath, text);
             out.printf("added %-20s %s (%s)%n", skillName, source, skill.version);
 
             Workspace workspace = new Workspace(root, new GitCli(GitCli.defaultCacheRoot()),
