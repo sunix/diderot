@@ -5,7 +5,7 @@ and the implementation work — kept here for new contributors, or anyone curiou
 together. Written in a blog-ish style rather than as formal docs, split into one post per
 chapter so each stays a readable size. Updated on request as the work progresses.*
 
-*Last updated: 2026-08-25.*
+*Last updated: 2026-08-26.*
 
 ## Posts
 
@@ -37,3 +37,8 @@ chapter so each stays a readable size. Updated on request as the work progresses
    `status` needed no changes again, the lockfile learning to say which release it landed on, an
    error message that finally names what a repository does publish, and a release that shipped with
    no binaries at all because a green CI was taken at face value twice.
+6. [Adding the `add` and `remove` commands](doc/making-of/06-add-and-remove.md) — declaring a skill
+   stops being hand-editing YAML: why the seven-line implementation is destructive, splicing lines
+   instead of serialising a model, pinning only the skill just added so nothing else in the lock
+   moves, what all this is really preparing for on the signing side, and two rules a failing test
+   knew better than I did.
