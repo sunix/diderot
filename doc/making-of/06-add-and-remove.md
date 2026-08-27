@@ -168,7 +168,20 @@ Yaml.write(manifestPath, manifest);
 ```
 
 Seven lines, no branching, nothing to get wrong. It is also destructive, and the fastest way to see
-that is to run it against the commented manifest from earlier. Here is what comes back:
+that is to run it. The manifest going in, comments and all:
+
+```yaml
+# Skills this project depends on.
+# Keep making-of first: the others reference its style rules.
+skills:
+  - name: making-of          # the journal skill
+    source: oci://ghcr.io/sunix/skills/making-of
+    version: "^1.0.0"
+
+targets: [claude]
+```
+
+And what comes back out:
 
 ```yaml
 skills:
