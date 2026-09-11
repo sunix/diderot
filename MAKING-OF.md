@@ -43,8 +43,8 @@ chapter so each stays a readable size. Updated on request as the work progresses
    moves, what all this is really preparing for on the signing side, and two rules a failing test
    knew better than I did.
 7. [Starting the signing work: two walls before any feature](doc/making-of/07-signing-foundations.md) —
-   resuming what part three parked: the registry ai-skills publishes to turns out to have no
-   Referrers API (measured against zot, not read off a 404), seven native builds to get sigstore-java
-   into a GraalVM image, the argument I lost about shelling out to cosign, and the never-regress rule
-   for skills that are not signed yet.
+   resuming what part three parked: where a registry can even keep a signature, and why the OCI
+   answer to that does not work on the registry ai-skills publishes to (measured against zot, not
+   read off a 404), seven native builds to get sigstore-java into a GraalVM image, the argument I
+   lost about shelling out to cosign, and the never-regress rule for skills that are not signed yet.
 

@@ -112,26 +112,59 @@ its verification accepted *any* valid signature — no identity pinning, which i
 The `Signing` class comes back from that branch unchanged. But before building policy on top of it,
 two assumptions it rested on needed checking, and both turned out false.
 
-## Wall one: ghcr has no Referrers API
+## Wall one: a registry has nowhere to put a signature
 
-#6 attached the signature bundle to the artifact as an **OCI referrer**. The registry ai-skills
-actually publishes to does not implement that API — and I say that from measurement, not from a 404,
-because a bare 404 proves nothing and I have been burned by exactly that reading before. The same
-request shape, against two registries:
+Start with the problem, because I had not appreciated it either. A signature is not the skill. It is
+a separate small document *about* the skill — this digest, signed by this identity, at this time —
+and a registry has no natural place for such a thing. A registry stores manifests, and you reach a
+manifest one of two ways: by a tag you chose, or by its digest. There is no third slot labelled
+"things related to this one".
+
+OCI 1.1 added the missing concept. A manifest may carry a **`subject`** field naming another
+manifest's digest, which says *this artifact is about that one*:
+
+```json
+{
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+  "subject": { "digest": "sha256:8b81085393c4…" },
+  "layers": [ { "…": "the signature bundle itself" } ]
+}
+```
+
+The registry is expected to index those, and to answer a new endpoint —
+`GET /v2/<repo>/referrers/<digest>` — with the list of everything pointing at that digest. Push the
+signature as an ordinary artifact with a `subject`, and any consumer holding the skill's digest can
+ask *"what else is there about this?"* and find it. Nothing is named by convention, nothing has to be
+guessed, and the signature travels with the artifact rather than beside it. That is what "attach"
+means in #6, and it is a genuinely good design.
+
+It is also OCI **1.1**, which is recent, and registries have adopted it at their own pace. So the
+question was whether ghcr.io — the one ai-skills actually publishes to — implements it. A 404 alone
+would not settle that: it could equally mean the digest is unknown, and reading a bare status code as
+proof is a mistake I have made in this repository before. So the same request went to a registry
+known to implement it, as a control:
 
 ```console
-# ghcr.io, two digests diderot resolves and pulls every day
+# ghcr.io, on two digests diderot resolves and pulls every day
 referrers/sha256:8b81085393c4…  →  404  {"code":"MANIFEST_UNKNOWN"}
 referrers/sha256:b61d9507ba16…  →  404  {"code":"MANIFEST_UNKNOWN"}
 
-# zot, freshly pushed artifact, no referrers attached at all
+# zot, on a freshly pushed artifact with no referrers attached at all
 referrers/sha256:accc3af6f97a…  →  200  {"mediaType":"…image.index.v1+json","manifests":[]}
 ```
 
-A registry that implements the API answers 200 with an empty index when there is nothing to list.
-ghcr answers 404 for digests it demonstrably serves, so it is the endpoint that is missing, not the
-manifest. The transport will be cosign's pre-referrers tag scheme instead — the signature as its own
-manifest under `sha256-<hex>.sig` — which needs nothing a registry can lack.
+A registry that implements the endpoint answers **200 with an empty index** when there is nothing to
+list — that is the shape of "I understand the question, the answer is none". ghcr answers 404 for
+digests it demonstrably serves on every other endpoint, so what is missing is the endpoint, not the
+manifest.
+
+Which retires the transport #6 chose, for the registry that matters. The fallback is what cosign did
+before referrers existed and still does by default: put the signature at a **tag derived from the
+digest it signs**, `sha256-<hex>.sig`. The consumer computes that name rather than discovering it,
+and it needs nothing from the registry beyond pushing and pulling a tag, which is the one thing every
+registry has. It is less elegant — the signatures are now visible in the tag list, sitting among the
+real versions — and it works everywhere, today.
 
 ## Wall two: seven native builds
 
