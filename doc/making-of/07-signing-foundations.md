@@ -6,7 +6,8 @@ signature live on ghcr, and does sigstore survive a native image.*
 
 ## The goal: `^1.0.0` you can defend
 
-Imagine a project that declared a skill months ago and has not thought about it since:
+Imagine a project that declared a skill months ago, back when `1.0.0` was the newest release, and has
+not thought about it since:
 
 ```yaml
 skills:
@@ -15,10 +16,17 @@ skills:
     version: "^1.0.0"
 ```
 
-On a Tuesday, someone runs `diderot update`. The registry now offers `1.3.0`, the range accepts it,
-the lock moves, `install` writes it into `.claude/skills/`, and `status` reports `ok`. Every check
-diderot has passes, because every check diderot has is asking the same question: *are these the bytes
-that were locked?* They are.
+That caret is npm's notation — cargo, composer and most of the ecosystem spell it the same way — and
+it reads *"anything compatible with 1.0.0"*: any `1.x`, never `2.0.0`, resting on semver's promise
+that breaking changes are what a major bump is for. So the line is a standing instruction to take
+newer releases automatically as long as they stay in the 1 series. Writing it is a deliberate choice
+to not be asked again, which is exactly why it is the interesting case here. The resolution behind it
+is [part five](05-semver-ranges.md); the lock has been pinned to `1.0.0` ever since.
+
+On a Tuesday, someone runs `diderot update`. The registry now offers `1.3.0` — three releases nobody
+in this project looked at — the range accepts it, the lock moves, `install` writes it into
+`.claude/skills/`, and `status` reports `ok`. Every check diderot has passes, because every check
+diderot has is asking the same question: *are these the bytes that were locked?* They are.
 
 The question nobody asked is who produced them. A registry push needs a token, and tokens leak,
 maintainers' laptops get compromised, and a workflow can be made to run from a branch nobody
