@@ -71,11 +71,40 @@ $ diderot add oci://ghcr.io/sunix/skills/making-of
   Trust this signer for making-of? [y/N] y
 ```
 
-and the Tuesday above ends differently — `1.3.0` signed by anything other than that workflow stops
-the update, names both identities, and writes nothing. Which is the argument part five left hanging:
-a range with no pinned signer means automatically adopting whatever the publisher pushes; with one,
-only what the *expected* publisher pushes. `^1.0.0` stops being an act of faith renewed at every
-release.
+One answer, recorded in the manifest, and Tuesday has two possible endings.
+
+The ordinary one first, because it should be dull. The maintainers really did release `1.3.0`, their
+workflow signed it, and the update looks like every other update with one extra fact in it:
+
+```console
+$ diderot update
+locked making-of  ghcr.io/…/making-of:1.3.0@sha256:1f0c4ee2a8b3 (tree:9a2b77c41d05…, signer ok)
+wrote diderot.lock
+```
+
+The other ending is the leaked token from earlier. Whoever holds it can push whatever bytes they
+like — but they cannot sign as that workflow, because the identity in a keyless signature comes from
+an OIDC token GitHub mints for a workflow run in that repository, and no amount of registry access
+produces one. So they have exactly two options, and both stop here:
+
+```console
+$ diderot update
+error: Skill 'making-of': ghcr.io/sunix/skills/making-of:1.3.0 is signed, but not by the expected
+       signer.
+         expected  …/sunix/ai-skills/.github/workflows/push-skill-to-oci.yml@refs/heads/main
+         found     …/attacker/tools/.github/workflows/release.yml@refs/heads/main
+       Nothing was written. diderot.lock still pins 1.0.0.
+```
+
+Or they push it unsigned, hoping the check simply will not run — which is the same refusal, because
+a skill that was signed and now is not is a downgrade rather than an absence, and the lock remembers
+which of the two it is.
+
+Either way the last line is the one that matters: **nothing was written**. `install` keeps serving
+`1.0.0`, the project keeps working, and a human gets to decide what happened. Which is the argument
+part five left hanging: a range with no pinned signer means automatically adopting whatever the
+publisher pushes; with one, only what the *expected* publisher pushes. `^1.0.0` stops being an act of
+faith renewed at every release.
 
 The starting point was not zero. Signing was built and proven against real Fulcio certificates and
 real Rekor entries back in [#6](https://github.com/sunix/diderot/pull/6), then deliberately parked:
