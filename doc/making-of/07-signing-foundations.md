@@ -224,7 +224,8 @@ public String signDigest(String digest) throws IOException {
     } catch (Exception e) {
         throw new IOException("Could not build a sigstore signer: " + e.getMessage(), e);
     }
-}```
+}
+```
 
 `sigstorePublicDefaults()` versus `sigstoreStagingDefaults()` is the whole difference between the
 real transparency log and the test one — staging exists so tests can sign for real without writing
@@ -243,7 +244,8 @@ private static byte[] rawDigestBytes(String digest) {
     } catch (IllegalArgumentException e) {
         throw new IllegalArgumentException("Malformed digest: " + digest, e);
     }
-}```
+}
+```
 
 Not the skill's files, and not the digest *string* either: the raw bytes the hex spells out. Signing
 the manifest digest means the signature covers exactly the thing a consumer resolves — the same
@@ -274,7 +276,8 @@ public void verifyDigest(String digest, String bundleJson) throws IOException {
     } catch (Exception e) {
         throw new IOException("Could not build a sigstore verifier: " + e.getMessage(), e);
     }
-}```
+}
+```
 
 `VerificationOptions.builder().build()` is an empty policy. It checks that the bundle is
 well-formed, that the certificate chains to Fulcio, that the Rekor entry is genuine, and that the
