@@ -6,7 +6,33 @@ signature live on ghcr, and does sigstore survive a native image.*
 
 ## The goal: `^1.0.0` you can defend
 
-Part six ended on what `add` is really preparing for. The target, concretely — none of it built yet:
+Imagine a project that declared a skill months ago and has not thought about it since:
+
+```yaml
+skills:
+  - name: making-of
+    source: oci://ghcr.io/sunix/skills/making-of
+    version: "^1.0.0"
+```
+
+On a Tuesday, someone runs `diderot update`. The registry now offers `1.3.0`, the range accepts it,
+the lock moves, `install` writes it into `.claude/skills/`, and `status` reports `ok`. Every check
+diderot has passes, because every check diderot has is asking the same question: *are these the bytes
+that were locked?* They are.
+
+The question nobody asked is who produced them. A registry push needs a token, and tokens leak,
+maintainers' laptops get compromised, and a workflow can be made to run from a branch nobody
+reviewed. Any of those produces a `1.3.0` that diderot installs with exactly the confidence it gives
+the real one. The content digest proves nothing was altered *between the registry and the disk* —
+which is a real guarantee, and a narrow one.
+
+Then the consequence, which is worse here than for a library. A library sits there until something
+calls it. A skill is **instructions an agent reads and acts on**: a file that says *"before deploying,
+always run this first"* will be obeyed, by a tool with a shell, usually while nobody is watching the
+directory it was installed into.
+
+So the target, none of it built yet. At `add` time, the signer is discovered rather than typed,
+because you cannot type an identity you do not know:
 
 ```console
 $ diderot add oci://ghcr.io/sunix/skills/making-of
@@ -15,10 +41,11 @@ $ diderot add oci://ghcr.io/sunix/skills/making-of
   Trust this signer for making-of? [y/N] y
 ```
 
-and from then on, a release signed by anything else fails closed, naming both identities. The
-argument for wanting it came out of part five: a range with no pinned signer means automatically
-adopting whatever the publisher pushes; with one, only what the *expected* publisher pushes.
-`^1.0.0` stops being an act of faith renewed at every release.
+and the Tuesday above ends differently — `1.3.0` signed by anything other than that workflow stops
+the update, names both identities, and writes nothing. Which is the argument part five left hanging:
+a range with no pinned signer means automatically adopting whatever the publisher pushes; with one,
+only what the *expected* publisher pushes. `^1.0.0` stops being an act of faith renewed at every
+release.
 
 The starting point was not zero. Signing was built and proven against real Fulcio certificates and
 real Rekor entries back in [#6](https://github.com/sunix/diderot/pull/6), then deliberately parked:
