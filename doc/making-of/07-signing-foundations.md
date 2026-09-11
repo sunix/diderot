@@ -166,6 +166,123 @@ and it needs nothing from the registry beyond pushing and pulling a tag, which i
 registry has. It is less elegant — the signatures are now visible in the tag list, sitting among the
 real versions — and it works everywhere, today.
 
+## What sigstore-java is, and why `java.security` will not do
+
+The JDK already verifies signatures. `Signature.getInstance("SHA256withECDSA")`, a
+`CertificateFactory` for X.509, `CertPathValidator` for chains — everything needed to check that some
+bytes were signed by the holder of some key. So the first honest question is why a dependency exists
+at all, and the answer is that **keyless signing is not a primitive, it is a protocol between three
+services**, and the JDK has no opinion about protocols.
+
+The awkward part of ordinary signing is the key: somebody has to generate it, guard it for years,
+rotate it, and revoke it when a laptop is stolen. Sigstore — a Linux Foundation project, the same
+one whose `cosign` CLI you meet in container land — removes the long-lived key entirely. A signing
+run instead goes:
+
+1. generate a keypair **in memory**, for this one signature;
+2. prove who you are to an OIDC issuer — for a GitHub Actions job, the token the runner already
+   holds, whose claims GitHub mints and the job cannot choose;
+3. hand that token to **Fulcio**, a certificate authority that returns a certificate valid for about
+   ten minutes, binding the ephemeral public key to the identity in the token;
+4. sign the bytes, publish signature and certificate to **Rekor**, an append-only transparency log,
+   so the pairing is timestamped and publicly visible;
+5. throw the private key away.
+
+Verification then has to check all of that: the certificate chains to Fulcio's root, the identity in
+it is the one expected, the signature covers the bytes, and the Rekor entry proves it all happened
+while the certificate was alive. Fulcio's and Rekor's own roots arrive through **TUF**, an update
+framework with its own client — which is where the dependency weight in the next section comes from.
+
+`sigstore-java` is the official Java client for those services. It is not a crypto library; the
+crypto underneath is the JDK's. It is the part that would otherwise have to be written by hand, and
+writing a security protocol by hand is the argument part five already made about semver, with worse
+consequences: a subtle bug in a comparator produces a wrong version, a subtle bug here produces a
+signature that verifies when it should not.
+
+## The code it comes down to
+
+Signing is nine lines once the builder is out of the way. `Signing` is the third class allowed to
+talk to an outside system, after `GitCli` for git and `OrasClient` for registries:
+
+```java
+/** Signs an OCI manifest digest ({@code sha256:<hex>}) and returns the sigstore bundle as JSON. */
+public String signDigest(String digest) throws IOException {
+    KeylessSigner.Builder builder = KeylessSigner.builder();
+    if (staging) {
+        builder.sigstoreStagingDefaults();
+    } else {
+        builder.sigstorePublicDefaults();
+    }
+    if (oidcOverride != null) {
+        builder.oidcClients(oidcOverride);
+    }
+    try (KeylessSigner signer = builder.build()) {
+        Bundle bundle = signer.sign(rawDigestBytes(digest));
+        return bundle.toJson();
+    } catch (KeylessSignerException e) {
+        throw new IOException("Signing failed for " + digest + ": " + e.getMessage(), e);
+    } catch (Exception e) {
+        throw new IOException("Could not build a sigstore signer: " + e.getMessage(), e);
+    }
+}```
+
+`sigstorePublicDefaults()` versus `sigstoreStagingDefaults()` is the whole difference between the
+real transparency log and the test one — staging exists so tests can sign for real without writing
+to a public permanent log, and `oidcClients` lets those tests supply a non-interactive identity
+instead of opening a browser.
+
+What gets signed is worth pausing on, because it is the decision everything else rests on:
+
+```java
+private static byte[] rawDigestBytes(String digest) {
+    if (!digest.startsWith("sha256:")) {
+        throw new IllegalArgumentException("Only sha256 OCI digests are supported: " + digest);
+    }
+    try {
+        return HexFormat.of().parseHex(digest.substring("sha256:".length()));
+    } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("Malformed digest: " + digest, e);
+    }
+}```
+
+Not the skill's files, and not the digest *string* either: the raw bytes the hex spells out. Signing
+the manifest digest means the signature covers exactly the thing a consumer resolves — the same
+`sha256:…` that lands in `diderot.lock` — so there is no gap between what was attested and what gets
+installed. Signing file bytes would have left one: a signature over a tarball says nothing about
+which manifest a registry serves for that tag.
+
+And then verification, where the gap this whole chapter exists to close is visible in a single
+argument:
+
+```java
+/** Verifies a sigstore bundle (JSON) against the OCI manifest digest it should attest to. */
+public void verifyDigest(String digest, String bundleJson) throws IOException {
+    KeylessVerifier.Builder builder = KeylessVerifier.builder();
+    if (staging) {
+        builder.sigstoreStagingDefaults();
+    } else {
+        builder.sigstorePublicDefaults();
+    }
+    try {
+        KeylessVerifier verifier = builder.build();
+        Bundle bundle = Bundle.from(new StringReader(bundleJson));
+        verifier.verify(rawDigestBytes(digest), bundle, VerificationOptions.builder().build());
+    } catch (KeylessVerificationException e) {
+        throw new IOException("Signature verification failed for " + digest + ": " + e.getMessage(), e);
+    } catch (BundleParseException e) {
+        throw new IOException("Could not parse the sigstore bundle for " + digest + ": " + e.getMessage(), e);
+    } catch (Exception e) {
+        throw new IOException("Could not build a sigstore verifier: " + e.getMessage(), e);
+    }
+}```
+
+`VerificationOptions.builder().build()` is an empty policy. It checks that the bundle is
+well-formed, that the certificate chains to Fulcio, that the Rekor entry is genuine, and that the
+signature covers this digest — all true, all necessary, and it never asks *whose* certificate it is.
+That call accepts a signature made two minutes ago by anyone who can log in to an OIDC provider. It
+is the difference between *"this was signed"* and *"this was signed by the workflow I named"*, and
+the whole of #6 turns on it being the first.
+
 ## Wall two: seven native builds
 
 The primary artifact is a GraalVM binary per platform, so if sigstore-java cannot be compiled into
