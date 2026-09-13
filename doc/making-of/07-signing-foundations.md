@@ -131,20 +131,16 @@ The second half is where the difficulty is, and it is not a cryptographic diffic
 problem: a registry holds manifests, and you reach a manifest one of exactly two ways — by a tag
 somebody chose, or by its digest. There is no third slot labelled "things related to this one".
 
-### Linking one manifest to another, and why only one direction exists
+### Two artifacts that know nothing about each other
 
-OCI 1.1 added the missing concept. Before showing it, the thing I had to settle first:
+Before any linking, the thing I had to settle first:
 
 > Once a skill is signed, is there still one artifact in the registry, or two?
 
 Two. Nothing is bolted onto the skill: the signature bundle is pushed as **its own ordinary
-artifact**, in the same repository, with its own manifest and its own digest. The only new thing is
-one field in that second manifest, and the [distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls the result a referrers
-list, in its [definitions](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#definitions):
-
-> **Referrers List**: a list of manifests with a `subject` relationship to a specified digest.
-
-So the skill, pushed first, addressed by the digest that ends up in `diderot.lock`:
+artifact**, in the same repository, with its own manifest and its own digest. So after
+`push --sign`, this is what is actually sitting there — the skill, pushed first, addressed by the
+digest that ends up in `diderot.lock`:
 
 ```json
 // manifest A — the skill, at sha256:8b81085393c4…
@@ -155,20 +151,37 @@ So the skill, pushed first, addressed by the digest that ends up in `diderot.loc
 }
 ```
 
-and the bundle, pushed afterwards:
+and the bundle, pushed afterwards, at a digest of its own:
 
 ```json
-// manifest B — the signature, at a digest of its own
+// manifest B — the signature, at sha256:4d7e91ff02ab…
 {
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
   "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
-  "subject": { "digest": "sha256:8b81085393c4…" },
   "layers": [ { "…": "the sigstore bundle itself" } ]
 }
 ```
 
-`subject` reads: *this signature concerns the manifest whose digest is `sha256:8b81085393c4…`*. And
-the direction is not a choice. **B can only exist after A does** — you sign a digest, so the digest
+Read those two as the registry sees them: **nothing relates them**. A says nothing about B, B says
+nothing about A, and neither digest is derivable from the other. They are two unrelated uploads that
+happen to share a repository. A consumer who resolves the skill gets A's digest and has no way to
+learn that B was ever pushed — which is the lookup problem, now in front of us rather than described.
+
+### The one field that links them, and why only one direction exists
+
+OCI 1.1's contribution is a single field, added to **B**:
+
+```json
+  "subject": { "digest": "sha256:8b81085393c4…" },
+```
+
+and the [distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls what that produces a referrers list, in its
+[definitions](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#definitions):
+
+> **Referrers List**: a list of manifests with a `subject` relationship to a specified digest.
+
+It reads: *this signature concerns the manifest whose digest is `sha256:8b81085393c4…`*. And the
+direction is not a choice. **B can only exist after A does** — you sign a digest, so the digest
 has to exist first, which means at the moment A is written there is nothing yet to point at.
 
 The obvious repair is to go back and add the pointer to A afterwards, once B exists. That fails too,
