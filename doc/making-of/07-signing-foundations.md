@@ -153,18 +153,42 @@ and the bundle, pushed afterwards as a separate artifact:
 `subject` is the only new thing, and it reads: *this signature concerns the manifest whose digest is
 `sha256:8b81085393c4…`*.
 
-The direction is forced, and it took me a moment to see why. The obvious design would be the other
-one — put a field in A saying where its signature lives. That is impossible: editing A changes A's
-bytes, which changes A's digest, which invalidates **every `diderot.lock` that pins it**. You cannot
-touch the thing you are signing. So the new object carries the pointer, and A is left exactly as it
-was.
+Which is the wrong way round for the job. What a consumer wants is the obvious direction: I have the
+skill, I want its signature, so I look at the skill and it tells me where its signature is. Instead
+the skill says nothing, and only the signature knows what it belongs to. That looks like a design
+mistake until you try to do it the other way.
 
-Which leaves the arrow pointing the wrong way for whoever has to check it. A consumer holds A's
-digest — that is all a lock contains — and A knows nothing about B. Hence the second half of the
-feature: the registry indexes those `subject` fields **backwards** and answers a new endpoint,
-`GET /v2/<name>/referrers/<digest>`, with everything declaring itself about that digest. So the
-consumer can ask *"is there anything about A?"* without knowing in advance that a signature was ever
-made, or what it would have been called.
+The obstacle is what a digest covers, and it is worth checking rather than assuming. A registry
+addresses a manifest by the hash of **the manifest document itself**, not of the content it points
+at — so it is one `curl` and one `sha256sum` to confirm:
+
+```console
+$ curl … https://ghcr.io/v2/sunix/skills/making-of/manifests/1.1.0 -D- -o manifest.json
+docker-content-digest: sha256:8b81085393c43ba0c46dcfe987f2713dd4ea8b31b881fbd5025a31b9e46eaeb4
+$ sha256sum manifest.json
+8b81085393c43ba0c46dcfe987f2713dd4ea8b31b881fbd5025a31b9e46eaeb4
+```
+
+The same number, and `8b81085393c4…` is what `diderot.lock` pins. So adding one field to A — *"my
+signature lives over there"* — rewrites the document, produces a different hash, and
+`repo@sha256:8b81085393c4…` stops resolving to it. Every lock pinning that digest would still find
+the old manifest, the one without the pointer, which is the version it was pinned to.
+
+The content is untouched by any of that, incidentally: the skill's bytes live in a layer with a
+digest of its own, and diderot keeps its own content digest in an annotation you can see in that
+manifest — `org.sunix.diderot.tree-digest: tree:89f4bb27c343…`. But content is not what you address,
+and not what the lock pins.
+
+Worse, the obvious direction is circular. The signature is *over A's digest*. Write the signature's
+location into A and A's digest changes, so the signature now attests to a manifest that no longer
+exists. Sign, edit, re-sign, edit again — there is no fixed point.
+
+So the pointer goes the only way it can. A stays byte-for-byte what it was, which is precisely why
+every existing lock keeps working, and B carries the reference. The referrers API is then the piece
+that makes it usable, because it lets a consumer walk that arrow **backwards**: hold A's digest —
+which is all a lock contains — ask the registry `GET /v2/<name>/referrers/<digest>` for everything
+declaring itself about it, and get B. Without knowing in advance that a signature was ever made, or
+what it would have been called.
 
 ### Then I tried it on the registry that matters
 
