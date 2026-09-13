@@ -129,7 +129,7 @@ OCI 1.1 added the missing concept, and the shape of it matters. There is no new 
 bundle is pushed as **its own ordinary artifact**, a second one in the same repository, with its own
 manifest and its own digest. What is new is one field in that second manifest. The
 [distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls the
-result a referrers list:
+result a referrers list, in its [definitions](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#definitions):
 
 > **Referrers List**: a list of manifests with a `subject` relationship to a specified digest.
 
@@ -234,7 +234,8 @@ nothing attached to it at all:
 referrers/sha256:accc3af6f97a…  →  200  {"mediaType":"…image.index.v1+json","manifests":[]}
 ```
 
-An empty list, not an error — and the spec says that is the only correct answer:
+An empty list, not an error — and [Listing Referrers](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers) says that is the
+only correct answer:
 
 > If a query results in no matching referrers, an empty manifest list MUST be returned. […] If the
 > registry supports the referrers API, the registry MUST NOT return a `404 Not Found` to a referrers
@@ -245,8 +246,9 @@ implementing the API is forbidden from doing that. **ghcr.io does not implement 
 
 ### And the spec had already thought about it
 
-This is where I expected to be inventing a workaround, and found the spec had written one — clients
-are *required* to fall back, not merely permitted:
+This is where I expected to be inventing a workaround, and found the spec had written one.
+[Unavailable Referrers API](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#unavailable-referrers-api) makes falling back a requirement rather
+than a permission:
 
 > A client querying the referrers API and receiving a `404 Not Found` MUST fallback to using an image
 > index pushed to a tag described by the referrers tag schema.
@@ -255,7 +257,8 @@ The schema is a name computed from the digest: the algorithm, a `-`, and the enc
 subject at `sha256:8b81085393c4…` has its referrers list at the tag `sha256-8b81085393c4…`. Nothing
 is discovered; the client works the name out and pulls it. It needs nothing from the registry beyond
 pushing and pulling a tag, which is the one capability every registry has — and the cost is that
-clients now maintain that list themselves, which the spec is candid about:
+clients now maintain that list themselves, which the
+[Referrers Tag Schema](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#referrers-tag-schema) is candid about:
 
 > Maintaining the content of this tag is the responsibility of clients pushing and deleting image
 > manifests that contain a `subject` field. […] multiple clients could attempt to update the tag
