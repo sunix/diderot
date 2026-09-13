@@ -112,20 +112,22 @@ its verification accepted *any* valid signature — no identity pinning, which i
 The `Signing` class comes back from that branch unchanged. But before building policy on top of it,
 two assumptions it rested on needed checking, and both turned out false.
 
-## Wall one: a registry has nowhere to put a signature
+## Wall one: where does a signature go, and can you find it again
 
-Start with the problem, because I had not appreciated it either. A signature is not the skill. It is
-a separate small document *about* the skill — this digest, signed by this identity, at this time —
-and a registry has no natural place for such a thing. A registry stores manifests, and you reach a
-manifest one of two ways: by a tag you chose, or by its digest. There is no third slot labelled
-"things related to this one".
+Signing produces a *bundle*: a small JSON document holding the signature, the Fulcio certificate and
+the Rekor proof. It has to be stored somewhere, and a registry is an awkward place for it. A registry
+holds manifests, and you reach a manifest one of exactly two ways — by a tag somebody chose, or by
+its digest. There is no third slot labelled "things related to this one".
 
-OCI 1.1 added the missing concept, and the shape of it is the part worth being slow about. There is
-no new kind of object: the signature is pushed as **its own ordinary artifact**, a second one in the
-same repository, with its own manifest and its own digest. What is new is one field in that second
-manifest, pointing back at the first.
+OCI 1.1 added the missing concept, and the shape of it matters. There is no new kind of object: the
+bundle is pushed as **its own ordinary artifact**, a second one in the same repository, with its own
+manifest and its own digest. What is new is one field in that second manifest. The
+[distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls the
+result a referrers list:
 
-So the skill, already there, addressed by the digest that ends up in `diderot.lock`:
+> **Referrers List**: a list of manifests with a `subject` relationship to a specified digest.
+
+So, the skill, already pushed, addressed by the digest that ends up in `diderot.lock`:
 
 ```json
 // manifest A — the skill, at sha256:8b81085393c4…
@@ -136,61 +138,87 @@ So the skill, already there, addressed by the digest that ends up in `diderot.lo
 }
 ```
 
-and the signature, pushed afterwards as a separate artifact that happens to be *about* it:
+and the bundle, pushed afterwards as a separate artifact:
 
 ```json
-// manifest B — the signature, at some digest of its own
+// manifest B — the signature, at a digest of its own
 {
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
   "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
-  "subject": { "digest": "sha256:8b81085393c4…" },   // ← points at A
+  "subject": { "digest": "sha256:8b81085393c4…" },
   "layers": [ { "…": "the sigstore bundle itself" } ]
 }
 ```
 
-`subject` is the whole of it: B declares *I am about A*. A is untouched — its bytes and its digest
-are exactly what they were before anything was signed, which matters, because otherwise signing a
-skill would change the digest the lock pins.
+`subject` is the only new thing, and it reads: *this signature concerns the manifest whose digest is
+`sha256:8b81085393c4…`*.
 
-The registry's job is to notice those declarations and index them backwards, answering a new
-endpoint — `GET /v2/<repo>/referrers/<digest of A>` — with the list of every manifest whose
-`subject` is A.
+The direction is forced, and it took me a moment to see why. The obvious design would be the other
+one — put a field in A saying where its signature lives. That is impossible: editing A changes A's
+bytes, which changes A's digest, which invalidates **every `diderot.lock` that pins it**. You cannot
+touch the thing you are signing. So the new object carries the pointer, and A is left exactly as it
+was.
 
-Which buys one specific thing: a consumer holding nothing but A's digest can ask *"what else exists
-about this?"* and be told — **without knowing in advance that anything was ever signed**, and without
-having to know what a signature would have been called. And since the mechanism says nothing about
-signatures, whatever else someone attaches later — an SBOM, a build attestation, a vulnerability scan
-— arrives through the same endpoint, rather than each needing its own convention. That is what
-"attach" means in #6.
+Which leaves the arrow pointing the wrong way for whoever has to check it. A consumer holds A's
+digest — that is all a lock contains — and A knows nothing about B. Hence the second half of the
+feature: the registry indexes those `subject` fields **backwards** and answers a new endpoint,
+`GET /v2/<name>/referrers/<digest>`, with everything declaring itself about that digest. So the
+consumer can ask *"is there anything about A?"* without knowing in advance that a signature was ever
+made, or what it would have been called.
 
-It is also OCI **1.1**, which is recent, and registries have adopted it at their own pace. So the
-question was whether ghcr.io — the one ai-skills actually publishes to — implements it. A 404 alone
-would not settle that: it could equally mean the digest is unknown, and reading a bare status code as
-proof is a mistake I have made in this repository before. So the same request went to a registry
-known to implement it, as a control:
+### Then I tried it on the registry that matters
+
+That is what #6 implemented, and it works — against the registry #6 tested on. ai-skills publishes to
+ghcr.io, so that is where it had to work:
 
 ```console
 # ghcr.io, on two digests diderot resolves and pulls every day
 referrers/sha256:8b81085393c4…  →  404  {"code":"MANIFEST_UNKNOWN"}
 referrers/sha256:b61d9507ba16…  →  404  {"code":"MANIFEST_UNKNOWN"}
+```
 
-# zot, on a freshly pushed artifact with no referrers attached at all
+`MANIFEST_UNKNOWN` is a genuinely ambiguous answer: it could mean the endpoint does not exist, or it
+could mean I was asking about a digest that does not. A bare 404 proves neither, and reading one as
+proof is a mistake I have made in this repository before. So the same request went to
+[zot](https://zotregistry.dev/), which does implement the API, against a freshly pushed artifact with
+nothing attached to it at all:
+
+```console
+# zot, same request shape, no referrers pushed
 referrers/sha256:accc3af6f97a…  →  200  {"mediaType":"…image.index.v1+json","manifests":[]}
 ```
 
-A registry that implements the endpoint answers **200 with an empty index** when there is nothing to
-list — that is the shape of "I understand the question, the answer is none". ghcr answers 404 for
-digests it demonstrably serves on every other endpoint, so what is missing is the endpoint, not the
-manifest.
+An empty list, not an error — and the spec says that is the only correct answer:
 
-Which retires the transport #6 chose, for the registry that matters. The fallback is what cosign did
-before referrers existed and still does by default, and it keeps manifest B exactly as it is —
-a separate artifact carrying the bundle — while giving up on being *found*. Instead of a `subject`
-the registry indexes, B simply gets **a tag computed from A's digest**: the skill at
-`sha256:8b81085393c4…` has its signature at the tag `sha256-8b81085393c4….sig`, in the same
-repository. The consumer does not ask the registry what points at A; it works out the name and pulls
-it, and needs nothing beyond pushing and pulling a tag, which is the one thing every registry has. It is less elegant — the signatures are now visible in the tag list, sitting among the
-real versions — and it works everywhere, today.
+> If a query results in no matching referrers, an empty manifest list MUST be returned. […] If the
+> registry supports the referrers API, the registry MUST NOT return a `404 Not Found` to a referrers
+> API request.
+
+Which settles it. ghcr answers 404 for digests it serves on every other endpoint, and a registry
+implementing the API is forbidden from doing that. **ghcr.io does not implement the referrers API.**
+
+### And the spec had already thought about it
+
+This is where I expected to be inventing a workaround, and found the spec had written one — clients
+are *required* to fall back, not merely permitted:
+
+> A client querying the referrers API and receiving a `404 Not Found` MUST fallback to using an image
+> index pushed to a tag described by the referrers tag schema.
+
+The schema is a name computed from the digest: the algorithm, a `-`, and the encoded part, so a
+subject at `sha256:8b81085393c4…` has its referrers list at the tag `sha256-8b81085393c4…`. Nothing
+is discovered; the client works the name out and pulls it. It needs nothing from the registry beyond
+pushing and pulling a tag, which is the one capability every registry has — and the cost is that
+clients now maintain that list themselves, which the spec is candid about:
+
+> Maintaining the content of this tag is the responsibility of clients pushing and deleting image
+> manifests that contain a `subject` field. […] multiple clients could attempt to update the tag
+> simultaneously resulting in race conditions and data loss.
+
+One thing to settle later rather than quietly: cosign has an **older, different** convention of its
+own — `sha256-<hex>.sig`, holding the signature artifact directly rather than an index of referrers.
+Following the spec is the more correct choice; following cosign is what makes a diderot signature
+verifiable with `cosign verify`. That is a real trade and it belongs in the transport step, not here.
 
 ## What sigstore-java is, and why `java.security` will not do
 
@@ -414,7 +442,7 @@ differently-signed **fails closed**. Optional to adopt, impossible to lose by ac
 
 ## What this chapter leaves open
 
-Everything user-visible: the tag-scheme transport, identity pinning in `verifyDigest` — still the
+Everything user-visible: the tag-schema transport, identity pinning in `verifyDigest` — still the
 unpinned call from #6, still the actual gap — the `signer:` block in the manifest, and the
 never-regress checks in `update`. And one honest caveat carried forward from part five's postscript:
 `native-smoke` proves the binary builds and starts, not that the keyless flow — TUF roots, Fulcio,
