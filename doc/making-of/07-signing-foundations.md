@@ -266,8 +266,41 @@ only correct answer:
 > registry supports the referrers API, the registry MUST NOT return a `404 Not Found` to a referrers
 > API request.
 
-Which settles it. ghcr answers 404 for digests it serves on every other endpoint, and a registry
-implementing the API is forbidden from doing that. **ghcr.io does not implement the referrers API.**
+Which looked like it settled the matter: ghcr answers 404 for digests it serves on every other
+endpoint, and a registry implementing the API is forbidden from doing that.
+
+Except that review caught the hole in it:
+
+> Maybe it is just empty. Did we test a digest that actually *has* a referrer?
+
+No — and that is the weak point. Every digest I tried has nothing attached to it, so strictly what I
+measured is *404 when the answer would be empty*. Turning that into non-support leans on the spec's
+`MUST NOT`, which is to say it assumes ghcr is conformant about referrers in order to prove it is
+not. That reasoning is circular, and it is exactly the shape of the 401 I misread two chapters ago.
+
+Closing it properly needs a manifest with a `subject` actually pushed to ghcr, which needs a token
+with `write:packages` this machine does not have. Two things can be said meanwhile. The evidence all
+points one way: hundreds of `sha256-…​.sig` tags sit in the ghcr repositories of cosign, Flux and
+Trivy, which is what clients produce when they store signatures by naming convention. And that is
+*not* proof either — cosign uses the tag scheme by default even where referrers work, so those tags
+are consistent with ghcr lacking the API and equally consistent with nobody having asked it for one.
+I pulled one of those signature manifests to check whether it carried a `subject` that a conformant
+registry would have had to list, and it does not: `schemaVersion`, `config`, `layers`, and nothing
+else.
+
+So: **ghcr.io very probably does not implement the referrers API, and this has not been proven.** The
+experiment that settles it is one diderot will run on its own, the first time the publish workflow
+pushes a signed skill, because [Pushing Manifests with Subject](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject)
+makes the answer arrive unasked:
+
+> When processing a request for an image manifest with the `subject` field, a registry implementation
+> that supports the referrers API MUST respond with the response header `OCI-Subject: <subject
+> digest>` to indicate to the client that the registry processed the request's `subject`.
+
+One header on the push response, present or absent, and no interpretation needed.
+Until then the transport is chosen on the safe assumption rather than on a measurement, which is the
+right way round: the fallback works on registries that do support referrers, and the reverse is not
+true.
 
 ### And the spec had already thought about it
 
