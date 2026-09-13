@@ -118,27 +118,33 @@ its verification accepted *any* valid signature — no identity pinning, which i
 The `Signing` class comes back from that branch unchanged. But before building policy on top of it,
 two assumptions it rested on needed checking, and both turned out false.
 
-## Wall one: where does a signature go, and can you find it again
+## Wall one: publishing a signature is easy, finding it again is not
 
-Signing produces a *bundle*: a small JSON document holding the signature, the Fulcio certificate and
-the Rekor proof. It has to be stored somewhere, and a registry is an awkward place for it. A registry
-holds manifests, and you reach a manifest one of exactly two ways — by a tag somebody chose, or by
-its digest. There is no third slot labelled "things related to this one".
+### What has to work
 
-OCI 1.1 added the missing concept, and the first thing to be clear about is how many things are now
-in the registry — the question I had to settle before any of the rest made sense:
+Two halves, and only the first is obvious. Publishing: `diderot push --sign` produces a signature and
+puts it in the registry alongside the skill. Consuming: someone runs `diderot update`, and from
+nothing but the reference they declared — `oci://ghcr.io/sunix/skills/making-of`, resolved to a tag
+and a digest — diderot has to **find the signature that belongs to that digest** and check it.
 
-> Once a skill is signed, is there still one artifact, or two?
+The second half is where the difficulty is, and it is not a cryptographic difficulty. It is a lookup
+problem: a registry holds manifests, and you reach a manifest one of exactly two ways — by a tag
+somebody chose, or by its digest. There is no third slot labelled "things related to this one".
 
-Two. There is no new kind of object and nothing is bolted onto the skill: the bundle is pushed as
-**its own ordinary artifact**, a second one in the same repository, with its own manifest and its own
-digest. What is new is a single field in that second manifest. The
-[distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls the
-result a referrers list, in its [definitions](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#definitions):
+### Linking one manifest to another, and why only one direction exists
+
+OCI 1.1 added the missing concept. Before showing it, the thing I had to settle first:
+
+> Once a skill is signed, is there still one artifact in the registry, or two?
+
+Two. Nothing is bolted onto the skill: the signature bundle is pushed as **its own ordinary
+artifact**, in the same repository, with its own manifest and its own digest. The only new thing is
+one field in that second manifest, and the [distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls the result a referrers
+list, in its [definitions](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#definitions):
 
 > **Referrers List**: a list of manifests with a `subject` relationship to a specified digest.
 
-So, the skill, already pushed, addressed by the digest that ends up in `diderot.lock`:
+So the skill, pushed first, addressed by the digest that ends up in `diderot.lock`:
 
 ```json
 // manifest A — the skill, at sha256:8b81085393c4…
@@ -149,7 +155,7 @@ So, the skill, already pushed, addressed by the digest that ends up in `diderot.
 }
 ```
 
-and the bundle, pushed afterwards as a separate artifact:
+and the bundle, pushed afterwards:
 
 ```json
 // manifest B — the signature, at a digest of its own
@@ -161,29 +167,19 @@ and the bundle, pushed afterwards as a separate artifact:
 }
 ```
 
-`subject` is the only new thing in either document, and it reads: *this signature concerns the
-manifest whose digest is `sha256:8b81085393c4…`*. A carries no trace of B at all — it is byte for
-byte the manifest that was there before anything was signed.
+`subject` reads: *this signature concerns the manifest whose digest is `sha256:8b81085393c4…`*. And
+the direction is not a choice. **B can only exist after A does** — you sign a digest, so the digest
+has to exist first, which means at the moment A is written there is nothing yet to point at.
 
-Which is the wrong way round for the job, and the job is worth stating precisely. Look at what
-diderot is holding at the moment the question arises: it resolved `^1.0.0` against the tag list and
-came out with one reference — `ghcr.io/sunix/skills/making-of:1.3.0` — and, behind it, that
-manifest's digest. **That is all it has.** A tag and a digest for the skill, and not one byte about a
-signature: not whether one exists, not what its manifest looks like, not what it might be called.
-
-So the problem is: *from a reference to the skill, find the signature* — and the only pointer in the
-system runs the other way.
-
-The obvious answer is to add one: put a field in the skill's manifest saying where its signature
-lives, and the lookup becomes a single hop in the direction you already have. Which raises the
-question I actually had at this point, and could not answer from memory:
+The obvious repair is to go back and add the pointer to A afterwards, once B exists. That fails too,
+and it is worth knowing exactly why, which was the other question I could not answer from memory:
 
 > When you edit the manifest you are not touching the content, so are you touching the digest — or
 > does the digest cover the content *and* the manifest? If it is only the content, wouldn't the
 > normal direction be simpler?
 
 It covers the manifest. A registry addresses a manifest by the hash of **the manifest document
-itself**, not of the content it points at, and that is one `curl` and one `sha256sum` to settle:
+itself**, not of the content it points at — one `curl` and one `sha256sum` to settle:
 
 ```console
 $ curl … https://ghcr.io/v2/sunix/skills/making-of/manifests/1.1.0 -D- -o manifest.json
@@ -192,26 +188,29 @@ $ sha256sum manifest.json
 8b81085393c43ba0c46dcfe987f2713dd4ea8b31b881fbd5025a31b9e46eaeb4
 ```
 
-The same number, and `8b81085393c4…` is what `diderot.lock` pins. So that extra field rewrites the
-document, which produces a different hash, and `repo@sha256:8b81085393c4…` stops resolving to it.
-Every lock pinning that digest keeps finding the old manifest — the one without the pointer, which is
-the version it was pinned to.
+The same number, and `8b81085393c4…` is what the lock pins and what the signature attests to. So
+editing A rewrites the document, changes its hash, and breaks both at once: every lock pinning that
+digest now resolves to a different manifest, and the signature attests to a manifest nobody can fetch
+any more. The content is untouched by this — the skill's bytes sit in a layer with a digest of their
+own, and diderot keeps its tree digest in an annotation on that manifest — but content is not what
+you address.
 
-The content is untouched by any of that, incidentally: the skill's bytes live in a layer with a
-digest of its own, and diderot keeps its own content digest in an annotation you can see in that
-manifest — `org.sunix.diderot.tree-digest: tree:89f4bb27c343…`. But content is not what you address,
-and not what the lock pins.
+So A stays as it is, B points at A, and the consequence is the lookup problem in full: **holding the
+skill's manifest tells you nothing about whether a signature exists.**
 
-Worse, the obvious direction is circular. The signature is *over A's digest*. Write the signature's
-location into A and A's digest changes, so the signature now attests to a manifest that no longer
-exists. Sign, edit, re-sign, edit again — there is no fixed point.
+### The referrers API is exactly the missing lookup
 
-So the pointer goes the only way it can. A stays byte-for-byte what it was, which is precisely why
-every existing lock keeps working, and B carries the reference. The referrers API is then the piece
-that makes it usable, because it lets a consumer walk that arrow **backwards**: hold A's digest —
-which is all a lock contains — ask the registry `GET /v2/<name>/referrers/<digest>` for everything
-declaring itself about it, and get B. Without knowing in advance that a signature was ever made, or
-what it would have been called.
+Which is what the API is for. Give the registry a digest, and it answers with the manifests that
+declare themselves about it:
+
+```
+GET /v2/<name>/referrers/<digest of A>   →   an index listing B
+```
+
+The registry indexes those `subject` fields backwards, so a consumer holding only A's digest — all a
+lock ever contains — can ask *"is there anything about this?"* without knowing in advance that a
+signature was ever made, or what it would have been called. Anything else attached later, an SBOM or
+a build attestation, arrives through the same endpoint.
 
 ### Then I tried it on the registry that matters
 
