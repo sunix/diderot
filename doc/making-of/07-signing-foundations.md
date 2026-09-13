@@ -16,12 +16,18 @@ skills:
     version: "^1.0.0"
 ```
 
-That caret is npm's notation — cargo, composer and most of the ecosystem spell it the same way — and
-it reads *"anything compatible with 1.0.0"*: any `1.x`, never `2.0.0`, resting on semver's promise
+Which is worth unpacking, because the whole scenario turns on that one line:
+
+> Which version is this project actually on at the start? And what does the caret mean — is it
+> borrowed from npm, or from somewhere else?
+
+`1.0.0`, pinned in the lock ever since it was declared. The caret is npm's notation — cargo,
+composer and most of the ecosystem spell it the same way — and it reads *"anything compatible with
+1.0.0"*: any `1.x`, never `2.0.0`, resting on semver's promise
 that breaking changes are what a major bump is for. So the line is a standing instruction to take
 newer releases automatically as long as they stay in the 1 series. Writing it is a deliberate choice
 to not be asked again, which is exactly why it is the interesting case here. The resolution behind it
-is [part five](05-semver-ranges.md); the lock has been pinned to `1.0.0` ever since.
+is [part five](05-semver-ranges.md).
 
 On a Tuesday, someone runs `diderot update`. The registry now offers `1.3.0` — three releases nobody
 in this project looked at — the range accepts it, the lock moves, `install` writes it into
@@ -151,7 +157,12 @@ and the bundle, pushed afterwards as a separate artifact:
 ```
 
 `subject` is the only new thing, and it reads: *this signature concerns the manifest whose digest is
-`sha256:8b81085393c4…`*.
+`sha256:8b81085393c4…`*. Which is the question I had to stop and settle when I first met that JSON:
+
+> Is that the manifest for just the signature, and not for the skill itself?
+
+Yes — B is a manifest of its own, for an artifact whose entire content is the bundle. The skill is
+still A, untouched, exactly where it was.
 
 Which is the wrong way round for the job, and the job is worth stating precisely. Look at what
 diderot is holding at the moment the question arises: it resolved `^1.0.0` against the tag list and
@@ -163,10 +174,15 @@ So the problem is: *from a reference to the skill, find the signature* — and t
 system runs the other way.
 
 The obvious answer is to add one: put a field in the skill's manifest saying where its signature
-lives, and the lookup becomes a single hop in the direction you already have. It does not work, and
-the reason is what a digest covers — worth checking rather than assuming. A registry addresses a
-manifest by the hash of **the manifest document itself**, not of the content it points at, which is
-one `curl` and one `sha256sum` to confirm:
+lives, and the lookup becomes a single hop in the direction you already have. Which raises the
+question I actually had at this point, and could not answer from memory:
+
+> When you edit the manifest you are not touching the content, so are you touching the digest — or
+> does the digest cover the content *and* the manifest? If it is only the content, wouldn't the
+> normal direction be simpler?
+
+It covers the manifest. A registry addresses a manifest by the hash of **the manifest document
+itself**, not of the content it points at, and that is one `curl` and one `sha256sum` to settle:
 
 ```console
 $ curl … https://ghcr.io/v2/sunix/skills/making-of/manifests/1.1.0 -D- -o manifest.json
