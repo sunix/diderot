@@ -120,24 +120,44 @@ and a registry has no natural place for such a thing. A registry stores manifest
 manifest one of two ways: by a tag you chose, or by its digest. There is no third slot labelled
 "things related to this one".
 
-OCI 1.1 added the missing concept. A manifest may carry a **`subject`** field naming another
-manifest's digest, which says *this artifact is about that one*:
+OCI 1.1 added the missing concept, and the shape of it is the part worth being slow about. There is
+no new kind of object: the signature is pushed as **its own ordinary artifact**, a second one in the
+same repository, with its own manifest and its own digest. What is new is one field in that second
+manifest, pointing back at the first.
+
+So the skill, already there, addressed by the digest that ends up in `diderot.lock`:
 
 ```json
+// manifest A — the skill, at sha256:8b81085393c4…
 {
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
-  "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
-  "subject": { "digest": "sha256:8b81085393c4…" },
-  "layers": [ { "…": "the signature bundle itself" } ]
+  "artifactType": "application/vnd.diderot.skill.v1",
+  "layers": [ { "…": "the skill directory, one tar+gzip layer" } ]
 }
 ```
 
-The registry is expected to index those, and to answer a new endpoint —
-`GET /v2/<repo>/referrers/<digest>` — with the list of everything pointing at that digest. Push the
-signature as an ordinary artifact with a `subject`, and any consumer holding the skill's digest can
-ask *"what else is there about this?"* and find it. Nothing is named by convention, nothing has to be
-guessed, and the signature travels with the artifact rather than beside it. That is what "attach"
-means in #6, and it is a genuinely good design.
+and the signature, pushed afterwards as a separate artifact that happens to be *about* it:
+
+```json
+// manifest B — the signature, at some digest of its own
+{
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+  "subject": { "digest": "sha256:8b81085393c4…" },   // ← points at A
+  "layers": [ { "…": "the sigstore bundle itself" } ]
+}
+```
+
+`subject` is the whole of it: B declares *I am about A*. A is untouched — its bytes and its digest
+are exactly what they were before anything was signed, which matters, because otherwise signing a
+skill would change the digest the lock pins.
+
+The registry's job is to notice those declarations and index them backwards, answering a new
+endpoint — `GET /v2/<repo>/referrers/<digest of A>` — with the list of every manifest whose
+`subject` is A. So a consumer holding nothing but the skill's digest can ask *"what else exists about
+this?"* and be handed B. Nothing is named by convention, nothing has to be guessed, and the signature
+travels with the artifact rather than beside it. That is what "attach" means in #6, and it is a
+genuinely good design.
 
 It is also OCI **1.1**, which is recent, and registries have adopted it at their own pace. So the
 question was whether ghcr.io — the one ai-skills actually publishes to — implements it. A 404 alone
@@ -160,10 +180,12 @@ digests it demonstrably serves on every other endpoint, so what is missing is th
 manifest.
 
 Which retires the transport #6 chose, for the registry that matters. The fallback is what cosign did
-before referrers existed and still does by default: put the signature at a **tag derived from the
-digest it signs**, `sha256-<hex>.sig`. The consumer computes that name rather than discovering it,
-and it needs nothing from the registry beyond pushing and pulling a tag, which is the one thing every
-registry has. It is less elegant — the signatures are now visible in the tag list, sitting among the
+before referrers existed and still does by default, and it keeps manifest B exactly as it is —
+a separate artifact carrying the bundle — while giving up on being *found*. Instead of a `subject`
+the registry indexes, B simply gets **a tag computed from A's digest**: the skill at
+`sha256:8b81085393c4…` has its signature at the tag `sha256-8b81085393c4….sig`, in the same
+repository. The consumer does not ask the registry what points at A; it works out the name and pulls
+it, and needs nothing beyond pushing and pulling a tag, which is the one thing every registry has. It is less elegant — the signatures are now visible in the tag list, sitting among the
 real versions — and it works everywhere, today.
 
 ## What sigstore-java is, and why `java.security` will not do
