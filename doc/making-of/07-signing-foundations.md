@@ -169,13 +169,25 @@ learn that B was ever pushed — which is the lookup problem, now in front of us
 
 ### The one field that links them, and why only one direction exists
 
-OCI 1.1's contribution is a single field, added to **B**:
+OCI 1.1's contribution is a single field, added to **B** — the same manifest as above, with one line
+it did not have:
 
 ```json
-  "subject": { "digest": "sha256:8b81085393c4…" },
+// manifest B — the signature, as it is actually pushed
+{
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+  "subject": { "digest": "sha256:8b81085393c4…" },   // ← added: A's digest
+  "layers": [ { "…": "the sigstore bundle itself" } ]
+}
 ```
 
-and the [distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls what that produces a referrers list, in its
+B is built that way from the start, so the line is not an edit to something already published —
+which matters, since editing a published manifest is precisely what cannot be done. A is not shown
+again because A genuinely does not change: same document, same digest, as before anything was
+signed.
+
+The [distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls what that produces a referrers list, in its
 [definitions](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#definitions):
 
 > **Referrers List**: a list of manifests with a `subject` relationship to a specified digest.
