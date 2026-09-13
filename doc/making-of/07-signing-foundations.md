@@ -160,12 +160,13 @@ manifest's digest. **That is all it has.** A tag and a digest for the skill, and
 signature: not whether one exists, not what its manifest looks like, not what it might be called.
 
 So the problem is: *from a reference to the skill, find the signature* — and the only pointer in the
-system runs the other way. That looks like a design mistake until you try to do it the obvious
-direction.
+system runs the other way.
 
-The obstacle is what a digest covers, and it is worth checking rather than assuming. A registry
-addresses a manifest by the hash of **the manifest document itself**, not of the content it points
-at — so it is one `curl` and one `sha256sum` to confirm:
+The obvious answer is to add one: put a field in the skill's manifest saying where its signature
+lives, and the lookup becomes a single hop in the direction you already have. It does not work, and
+the reason is what a digest covers — worth checking rather than assuming. A registry addresses a
+manifest by the hash of **the manifest document itself**, not of the content it points at, which is
+one `curl` and one `sha256sum` to confirm:
 
 ```console
 $ curl … https://ghcr.io/v2/sunix/skills/making-of/manifests/1.1.0 -D- -o manifest.json
@@ -174,10 +175,10 @@ $ sha256sum manifest.json
 8b81085393c43ba0c46dcfe987f2713dd4ea8b31b881fbd5025a31b9e46eaeb4
 ```
 
-The same number, and `8b81085393c4…` is what `diderot.lock` pins. So adding one field to A — *"my
-signature lives over there"* — rewrites the document, produces a different hash, and
-`repo@sha256:8b81085393c4…` stops resolving to it. Every lock pinning that digest would still find
-the old manifest, the one without the pointer, which is the version it was pinned to.
+The same number, and `8b81085393c4…` is what `diderot.lock` pins. So that extra field rewrites the
+document, which produces a different hash, and `repo@sha256:8b81085393c4…` stops resolving to it.
+Every lock pinning that digest keeps finding the old manifest — the one without the pointer, which is
+the version it was pinned to.
 
 The content is untouched by any of that, incidentally: the skill's bytes live in a layer with a
 digest of its own, and diderot keeps its own content digest in an annotation you can see in that
