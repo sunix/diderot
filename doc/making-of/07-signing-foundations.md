@@ -154,10 +154,14 @@ skill would change the digest the lock pins.
 
 The registry's job is to notice those declarations and index them backwards, answering a new
 endpoint — `GET /v2/<repo>/referrers/<digest of A>` — with the list of every manifest whose
-`subject` is A. So a consumer holding nothing but the skill's digest can ask *"what else exists about
-this?"* and be handed B. Nothing is named by convention, nothing has to be guessed, and the signature
-travels with the artifact rather than beside it. That is what "attach" means in #6, and it is a
-genuinely good design.
+`subject` is A.
+
+Which buys one specific thing: a consumer holding nothing but A's digest can ask *"what else exists
+about this?"* and be told — **without knowing in advance that anything was ever signed**, and without
+having to know what a signature would have been called. And since the mechanism says nothing about
+signatures, whatever else someone attaches later — an SBOM, a build attestation, a vulnerability scan
+— arrives through the same endpoint, rather than each needing its own convention. That is what
+"attach" means in #6.
 
 It is also OCI **1.1**, which is recent, and registries have adopted it at their own pace. So the
 question was whether ghcr.io — the one ai-skills actually publishes to — implements it. A 404 alone
