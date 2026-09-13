@@ -153,10 +153,15 @@ and the bundle, pushed afterwards as a separate artifact:
 `subject` is the only new thing, and it reads: *this signature concerns the manifest whose digest is
 `sha256:8b81085393c4…`*.
 
-Which is the wrong way round for the job. What a consumer wants is the obvious direction: I have the
-skill, I want its signature, so I look at the skill and it tells me where its signature is. Instead
-the skill says nothing, and only the signature knows what it belongs to. That looks like a design
-mistake until you try to do it the other way.
+Which is the wrong way round for the job, and the job is worth stating precisely. Look at what
+diderot is holding at the moment the question arises: it resolved `^1.0.0` against the tag list and
+came out with one reference — `ghcr.io/sunix/skills/making-of:1.3.0` — and, behind it, that
+manifest's digest. **That is all it has.** A tag and a digest for the skill, and not one byte about a
+signature: not whether one exists, not what its manifest looks like, not what it might be called.
+
+So the problem is: *from a reference to the skill, find the signature* — and the only pointer in the
+system runs the other way. That looks like a design mistake until you try to do it the obvious
+direction.
 
 The obstacle is what a digest covers, and it is worth checking rather than assuming. A registry
 addresses a manifest by the hash of **the manifest document itself**, not of the content it points
