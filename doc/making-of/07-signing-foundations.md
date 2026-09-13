@@ -125,9 +125,14 @@ the Rekor proof. It has to be stored somewhere, and a registry is an awkward pla
 holds manifests, and you reach a manifest one of exactly two ways — by a tag somebody chose, or by
 its digest. There is no third slot labelled "things related to this one".
 
-OCI 1.1 added the missing concept, and the shape of it matters. There is no new kind of object: the
-bundle is pushed as **its own ordinary artifact**, a second one in the same repository, with its own
-manifest and its own digest. What is new is one field in that second manifest. The
+OCI 1.1 added the missing concept, and the first thing to be clear about is how many things are now
+in the registry — the question I had to settle before any of the rest made sense:
+
+> Once a skill is signed, is there still one artifact, or two?
+
+Two. There is no new kind of object and nothing is bolted onto the skill: the bundle is pushed as
+**its own ordinary artifact**, a second one in the same repository, with its own manifest and its own
+digest. What is new is a single field in that second manifest. The
 [distribution spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) calls the
 result a referrers list, in its [definitions](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#definitions):
 
@@ -156,13 +161,9 @@ and the bundle, pushed afterwards as a separate artifact:
 }
 ```
 
-`subject` is the only new thing, and it reads: *this signature concerns the manifest whose digest is
-`sha256:8b81085393c4…`*. Which is the question I had to stop and settle when I first met that JSON:
-
-> Is that the manifest for just the signature, and not for the skill itself?
-
-Yes — B is a manifest of its own, for an artifact whose entire content is the bundle. The skill is
-still A, untouched, exactly where it was.
+`subject` is the only new thing in either document, and it reads: *this signature concerns the
+manifest whose digest is `sha256:8b81085393c4…`*. A carries no trace of B at all — it is byte for
+byte the manifest that was there before anything was signed.
 
 Which is the wrong way round for the job, and the job is worth stating precisely. Look at what
 diderot is holding at the moment the question arises: it resolved `^1.0.0` against the tag list and
