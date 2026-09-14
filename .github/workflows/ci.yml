@@ -9,6 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  review-annotations:
+    # `> @claude …` remarks are working notes; none may reach main. See AGENT.md.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-review-markers.sh
+
   build:
     runs-on: ubuntu-latest
     steps:

@@ -39,3 +39,23 @@ the squash-merge commit.
 - Update `MAKING-OF.md` at the end of each working session (see the
   [making-of skill](https://github.com/sunix/ai-skills/tree/main/skills/documentation/making-of)):
   what was done, the discussions with the LLM, and proof that generated code works.
+
+## Review annotations
+
+Leave review remarks in the markdown itself, as a blockquote beginning with `@claude`:
+
+```markdown
+> @claude this paragraph asserts the caret notation without saying where it comes from
+```
+
+They can be anywhere in a file, span several lines as long as each is quoted, and sit right next to
+what they are about — which is the point: a remark two paragraphs above the sentence it refers to
+loses half its meaning by the time anyone acts on it.
+
+The agent addresses each one, **deletes the annotation**, and reports what changed. An annotation is
+never an instruction to add a note to the text: it is a question or an objection about the text, and
+the answer belongs in the prose, not beside it.
+
+Nothing carrying `@claude` may be merged. `./scripts/check-review-markers.sh` fails when any remain,
+and CI runs it, so a forgotten remark cannot ship as if it were content.
+
