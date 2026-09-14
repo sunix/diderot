@@ -5,7 +5,7 @@ and the implementation work — kept here for new contributors, or anyone curiou
 together. Written in a blog-ish style rather than as formal docs, split into one post per
 chapter so each stays a readable size. Updated on request as the work progresses.*
 
-*Last updated: 2026-08-26.*
+*Last updated: 2026-08-27.*
 
 ## Posts
 
@@ -42,3 +42,11 @@ chapter so each stays a readable size. Updated on request as the work progresses
    instead of serialising a model, pinning only the skill just added so nothing else in the lock
    moves, what all this is really preparing for on the signing side, and two rules a failing test
    knew better than I did.
+7. [Starting the signing work: two walls before any feature](doc/making-of/07-signing-foundations.md) —
+   resuming what part three parked: publishing a signature is easy and finding it again is not, so
+   why the link between a skill and its signature can only run one way, what the OCI referrers API
+   solves, discovering that ghcr.io does not implement it (measured against zot, since a bare 404
+   proves nothing) and that the spec had already written the fallback, seven native builds to get
+   sigstore-java into a GraalVM image, the argument I lost about shelling out to cosign, and the
+   never-regress rule for skills that are not signed yet.
+
