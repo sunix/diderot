@@ -16,10 +16,10 @@ skills:
     version: "^1.0.0"
 ```
 
-Which is worth unpacking, because the whole scenario turns on that one line:
+Everything below turns on that one line, so it is worth being exact about what it says:
 
-> Which version is this project actually on at the start? And what does the caret mean — is it
-> borrowed from npm, or from somewhere else?
+> The manifest says `^1.0.0` — but which release is actually installed right now? And what is the
+> caret doing there; is that npm's notation?
 
 `1.0.0`, pinned in the lock ever since it was declared. The caret is npm's notation — cargo,
 composer and most of the ecosystem spell it the same way — and it reads *"anything compatible with
@@ -28,6 +28,11 @@ that breaking changes are what a major bump is for. So the line is a standing in
 newer releases automatically as long as they stay in the 1 series. Writing it is a deliberate choice
 to not be asked again, which is exactly why it is the interesting case here. The resolution behind it
 is [part five](05-semver-ranges.md).
+
+A range is not the only way to sign up for that. `version: latest` is accepted too and has the same
+consequence by a different route — it follows a tag the publisher moves, rather than a rule diderot
+evaluates — and everything below applies to it identically. Only an exact `version: 1.0.0` opts out,
+by never moving at all.
 
 On a Tuesday, someone runs `diderot update`. The registry now offers `1.3.0` — three releases nobody
 in this project looked at — the range accepts it, the lock moves, `install` writes it into
@@ -63,9 +68,10 @@ about the source.
 
 Then the consequence, which is worse here than it would be for a library. A library sits there until
 something calls it. A skill is **instructions an agent reads and acts on**, so the next session opens
-that file and follows it — by a tool with a shell, usually while nobody is watching the directory it
-was installed into. The content digest held the whole time, and it was always a narrow guarantee
-wearing a reassuring word.
+that file and follows it. And the thing following it is an agent that can run commands: it reads
+*"before drafting an entry, collect the project's environment"* as a step to carry out, not as prose
+to consider, and it does so in a directory nobody is watching at the time. The content digest held
+the whole way through, and it was always a narrow guarantee wearing a reassuring word.
 
 So the target, none of it built yet. At `add` time, the signer is discovered rather than typed,
 because you cannot type an identity you do not know:
@@ -77,7 +83,8 @@ $ diderot add oci://ghcr.io/sunix/skills/making-of
   Trust this signer for making-of? [y/N] y
 ```
 
-One answer, recorded in the manifest, and Tuesday has two possible endings.
+One answer, recorded in the manifest — and the ordinary Tuesday from the start of this chapter now
+has two possible endings.
 
 The ordinary one first, because it should be dull. The maintainers really did release `1.3.0`, their
 workflow signed it, and the update looks like every other update with one extra fact in it:
@@ -115,21 +122,33 @@ faith renewed at every release.
 The starting point was not zero. Signing was built and proven against real Fulcio certificates and
 real Rekor entries back in [#6](https://github.com/sunix/diderot/pull/6), then deliberately parked:
 its verification accepted *any* valid signature — no identity pinning, which is the entire question.
-The `Signing` class comes back from that branch unchanged. But before building policy on top of it,
-two assumptions it rested on needed checking, and both turned out false.
+The `Signing` class comes back from that branch unchanged.
+
+What has changed since it was parked is that there is now somewhere to put the answer. Identity
+pinning needs a human to see an identity and accept it, and until [part six](06-add-and-remove.md)
+there was no moment in diderot where that could happen — a manifest was something you hand-edited,
+so the only way to pin a signer would have been to already know the string and type it. `add` is that
+moment: it resolves the skill, so it is holding the signature, so it can show who made it and ask.
+Which is why signing is being resumed *after* `add` rather than before it.
+
+But before building policy on top of `Signing`, two assumptions it rested on needed checking, and
+both turned out false.
 
 ## Wall one: publishing a signature is easy, finding it again is not
 
 ### What has to work
 
-Two halves, and only the first is obvious. Publishing: `diderot push --sign` produces a signature and
-puts it in the registry alongside the skill. Consuming: someone runs `diderot update`, and from
-nothing but the reference they declared — `oci://ghcr.io/sunix/skills/making-of`, resolved to a tag
-and a digest — diderot has to **find the signature that belongs to that digest** and check it.
+Two questions, in this order. First, **where does the signature go** when `diderot push --sign`
+produces one — a registry has to hold it somewhere. Second, **how is it found again**: someone runs
+`diderot update`, and from nothing but the reference they declared —
+`oci://ghcr.io/sunix/skills/making-of`, resolved to a tag and a digest — diderot has to locate the
+signature belonging to that digest and check it.
 
-The second half is where the difficulty is, and it is not a cryptographic difficulty. It is a lookup
-problem: a registry holds manifests, and you reach a manifest one of exactly two ways — by a tag
-somebody chose, or by its digest. There is no third slot labelled "things related to this one".
+The second is the hard one, and it is not a cryptographic difficulty but a lookup problem: a registry
+holds manifests, and you reach a manifest one of exactly two ways — by a tag somebody chose, or by
+its digest. There is no third slot labelled "things related to this one". Which is why the two
+questions cannot be answered separately: **how it is stored is decided entirely by what makes it
+findable.**
 
 ### Two artifacts that know nothing about each other
 
