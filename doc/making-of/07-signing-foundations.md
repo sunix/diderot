@@ -100,6 +100,27 @@ Tuesday's compromise is entirely inside the gap between row 1 and row 4, and the
 sentence worth keeping: **trusting the registry is not the same thing as trusting the publisher.**
 ghcr.io is where bytes are distributed; it was never asked to say who made them.
 
+### The names, before they start appearing in sentences
+
+Rows 2 to 4 are what the rest of this chapter builds, and building them brings in a handful of
+names that are meaningless the first time you meet them mid-sentence. So here they all are up
+front, one line each; every one of them gets a proper section further down.
+
+| name | in one line |
+|---|---|
+| **sigstore** | a Linux Foundation project for signing **without owning a long-lived key**; `cosign` is its best-known command-line tool |
+| **OIDC** | OpenID Connect, the "sign in with…" standard. An *issuer* hands out short-lived signed tokens whose claims state who the bearer is — for a CI job, which workflow is running |
+| **JWT** | the format those tokens come in: a JSON payload of claims, signed by the issuer |
+| **Fulcio** | sigstore's **certificate authority**. Give it an OIDC token, it returns a ten-minute X.509 certificate tying that identity to a key |
+| **Rekor** | sigstore's **transparency log**: an append-only public record that a given signature was made, and when |
+| **CT log** | Certificate Transparency — the same idea one level up, the public record that Fulcio *issued* a certificate |
+| **TUF** | The Update Framework: how a client learns which Fulcio and which Rekor to believe, instead of having keys baked into it |
+| **bundle** | one JSON document carrying a signature, its certificate and its Rekor proof together — the thing that has to be stored somewhere and fetched back |
+
+Two of those are worth separating right away, because conflating them is the most common way to
+misunderstand the whole scheme: **OIDC says who you are, Fulcio turns that into something a
+signature verifier can check.** Neither of them ever sees the artifact.
+
 So the target, none of it built yet. At `add` time, the signer is discovered rather than typed,
 because you cannot type an identity you do not know:
 
@@ -170,21 +191,21 @@ users actually run.
 The JDK already verifies signatures. `Signature.getInstance("SHA256withECDSA")`, a
 `CertificateFactory` for X.509, `CertPathValidator` for chains — everything needed to check that some
 bytes were signed by the holder of some key. So the first honest question is why a dependency exists
-at all, and the answer is that **keyless signing is not a primitive, it is a protocol between three
-services**, and the JDK has no opinion about protocols.
+at all, and the answer is that **keyless signing — signing with a key that exists for one run and
+is then destroyed — is not a primitive, it is a protocol between three services**, and the JDK has
+no opinion about protocols.
 
 The awkward part of ordinary signing is the key: somebody has to generate it, guard it for years,
-rotate it, and revoke it when a laptop is stolen. Sigstore — a Linux Foundation project, the same
-one whose `cosign` CLI you meet in container land — removes the long-lived key entirely. A signing
-run instead goes:
+rotate it, and revoke it when a laptop is stolen. Sigstore removes it entirely, and a signing run
+goes like this instead — the three services from the table above, in order:
 
 1. generate a keypair **in memory**, for this one signature;
-2. prove who you are to an OIDC issuer — for a GitHub Actions job, the token the runner already
-   holds, whose claims GitHub mints and the job cannot choose;
-3. hand that token to **Fulcio**, a certificate authority that returns a certificate valid for about
-   ten minutes, binding the ephemeral public key to the identity in the token;
-4. sign the bytes, publish signature and certificate to **Rekor**, an append-only transparency log,
-   so the pairing is timestamped and publicly visible;
+2. get a token from the OIDC issuer — on a GitHub Actions runner, the one the job already holds,
+   whose claims GitHub fills in and the job cannot choose;
+3. hand that token to Fulcio, which returns a certificate valid about ten minutes, binding the
+   ephemeral public key to the identity in the token;
+4. sign the bytes, and publish signature and certificate to Rekor, so the pairing is timestamped and
+   publicly visible;
 5. throw the private key away.
 
 Those five steps are easier to hold as a picture, because almost none of the difficulty is
@@ -274,8 +295,9 @@ $ curl -s https://token.actions.githubusercontent.com/.well-known/openid-configu
 }
 ```
 
-Fulcio fetches those keys, checks the JWT's signature against them, checks the audience, and reads
-the claims. The distinction worth holding on to is that those two halves answer different questions:
+Fulcio fetches those keys, checks the JWT's signature against them, checks the *audience* — the
+`aud` claim, saying this token was minted for sigstore and not for something else that might replay
+it — and reads the rest of the claims. The distinction worth holding on to is that those two halves answer different questions:
 
 > **OIDC discovery tells Fulcio *how* to verify a GitHub token. Fulcio's own configuration is what
 > says GitHub is an issuer it accepts at all.**
@@ -315,7 +337,8 @@ to answer is the harder one — **was this signature produced while that certifi
 and nothing in the signature itself can answer it, because anyone can claim a date.
 
 That is Rekor's whole reason to exist. The signature and the certificate are submitted to an
-append-only log, which countersigns them with a timestamp of its own and returns an inclusion proof.
+append-only log, which countersigns them with a timestamp of its own and returns an *inclusion
+proof* — a short chain of hashes anyone can recompute to confirm the entry really is in the log.
 Verification then compares two facts that arrived from different places, and the entry printed
 further down has both: the certificate says *valid from 21:02:50 to 21:12:50 on 1 June*, and the log
 says `integratedTime: 1780347770`, which is 21:02:50 that same day. Inside the window, so the
@@ -328,9 +351,10 @@ the evidence that this particular signing happened, and when.**
 ### What actually lands in Rekor
 
 Rekor is public, which makes this checkable rather than assertable. diderot has no entry there yet,
-so the one to look at is somebody else's with exactly the identity this chapter keeps describing: npm
-publishes provenance for `@sigstore/bundle`, signed by sigstore-js's release workflow, and that run
-left entry `1697019799` in the log. First, what an entry even is:
+so the one to look at is somebody else's, with exactly the identity this chapter keeps describing.
+npm publishes *provenance* for `@sigstore/bundle` — a signed statement about how a package was
+built — produced by sigstore-js's release workflow, and that run left entry `1697019799` in the log.
+First, what an entry even is:
 
 ```console
 $ curl -s 'https://rekor.sigstore.dev/api/v1/log/entries?logIndex=1697019799' \
