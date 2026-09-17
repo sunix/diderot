@@ -1,8 +1,8 @@
 # Signing: the library, and seven builds to compile it
 
 *Part seven of [diderot's making-of](../../MAKING-OF.md): resuming the signing that part three
-parked, and the question that had to be answered before writing any of it — does sigstore survive
-`native-image`, or is signing a JVM-only feature?*
+parked, one step at a time — the library, the part of the mechanism everything else rests on, and
+the rule that every step has to satisfy: it compiles into the native binary.*
 
 ## The goal: `^1.0.0` you can defend
 
@@ -182,9 +182,9 @@ so the only way to pin a signer would have been to already know the string and t
 moment: it resolves the skill, so it is holding the signature, so it can show who made it and ask.
 Which is why signing is being resumed *after* `add` rather than before it.
 
-So the plan was to build the pinning on top of `Signing` — until the one assumption underneath it
-turned out to need checking first: that a library doing all of this can be compiled into the binary
-users actually run.
+So the first step is the smallest useful piece of it: what sigstore-java is, what signing and
+verifying a digest comes down to, and whether a library that does all of this can be compiled into
+the binary users actually run.
 
 ## What sigstore-java is, and why `java.security` will not do
 
@@ -896,17 +896,25 @@ stranger, because nothing here ever asks whose certificate it is.
 
 ## Seven builds to compile it
 
-The primary artifact is a GraalVM binary per platform, so if sigstore-java cannot be compiled into
-one, signing is a JVM-only feature and the design changes. That question could invalidate everything
-after it, so it went first: restore `Signing`, add a `push --sign` flag, and let CI answer. It
-cannot be answered here: `native-image` peaks above 4 GB and this machine has 2.
+So that is one step done: the part of the mechanism everything else stands on — signing a digest,
+verifying it — implemented, and proven against real certificates and a real log. Storing the bundle
+is the next step, identity pinning the one after. Nothing here is half-built because half was
+enough to make a point; it is half-built because the work is going in steps, and this is the first
+of them.
 
-That flag is worth a word, because it looks unfinished and is not. `push --sign` signs the digest,
-prints the length of the bundle, and then **throws the bundle away** — there is nowhere to put it
-until the storage question is settled, which is [part eight](08-storing-a-signature.md). What it
-exists for is reachability: `native-image` traces from entry points and discards what nothing calls,
-so a dependency that is merely declared gets optimised out of the image and a green build proves
-nothing at all. The flag is the probe's instrument, not a half-built feature.
+What each step also has to satisfy is the rule this section is about: **it compiles into the native
+binary.** diderot ships a GraalVM binary per platform, so a step that only works on a JVM is not a
+step forward, it is a debt — and the wrong moment to discover that sigstore-java cannot be compiled
+would be three steps from here, with the storage and the policy already written on top of it. So
+the check runs on this step, and it will run on the next one, and it cannot run on this machine:
+`native-image` peaks above 4 GB and there are 2.
+
+Which is also why `push --sign` signs a digest and then **throws the bundle away**, printing its
+length and nothing more. There is nowhere to put it until [part eight](08-storing-a-signature.md)
+settles that question — but a dependency that is merely declared and never called is optimised out
+of the image by `native-image`, which traces from entry points. Without one reachable call the build
+would go green while proving nothing at all. The flag makes the check mean something, for this step
+and every step after it.
 
 The answer took seven rounds, each about ten minutes, and the instructive part is that the first
 three fixes were the wrong *kind* of fix:
@@ -986,13 +994,14 @@ dependency is permanent and paid by every user; the cost of build configuration 
 
 ## What this chapter leaves open
 
-Everything user-visible — and in the terms of the four questions at the top, rows 2, 3 and 4 are all
-still open. Where a signature is stored and how it is found again is [part
-eight](08-storing-a-signature.md), drafted alongside this one, and it is what row 2 waits on. Row 3
-is the unpinned `VerificationOptions.builder().build()` from #6, the actual gap. Row 4 is the
-`signer:` block in the manifest that would feed it, together with the never-regress rule for skills
-that are not signed yet; both are designed on
-[#25](https://github.com/sunix/diderot/issues/25) and built after the transport.
+Everything user-visible, which in the terms of the four questions at the top means this. Row 2 now
+has working code behind it and a test to prove it, but no user can benefit yet, because a signature
+nobody can find is a signature nobody checks: that is [part
+eight](08-storing-a-signature.md), drafted alongside this one, and the next step. Row 3 is the
+unpinned `VerificationOptions.builder().build()` from #6, the actual gap. Row 4 is the `signer:`
+block in the manifest that would feed it, together with the never-regress rule for skills that are
+not signed yet; both are designed on [#25](https://github.com/sunix/diderot/issues/25) and built
+after the transport, each with the same native check on it.
 
 And one honest caveat carried forward from part five's postscript:
 `native-smoke` proves the binary builds and starts, not that the keyless flow — TUF roots, Fulcio,

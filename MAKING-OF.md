@@ -43,7 +43,8 @@ chapter so each stays a readable size. Updated on request as the work progresses
    moves, what all this is really preparing for on the signing side, and two rules a failing test
    knew better than I did.
 7. [Signing: the library, and seven builds to compile it](doc/making-of/07-signing-foundations.md) —
-   resuming what part three parked: the four questions hiding inside the word "verified", what
+   resuming what part three parked, one step at a time: the four questions hiding inside the word
+   "verified", what
    `^1.0.0` is worth without a pinned signer, who actually signs in a keyless flow (not GitHub) and
    why Fulcio believes GitHub at all, what a real Rekor entry and a ten-minute certificate look like,
    where a verifier gets its trust anchors from and why that is TUF's job and not a policy,
