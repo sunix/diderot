@@ -46,6 +46,7 @@ chapter so each stays a readable size. Updated on request as the work progresses
    resuming what part three parked: the four questions hiding inside the word "verified", what
    `^1.0.0` is worth without a pinned signer, who actually signs in a keyless flow (not GitHub) and
    why Fulcio believes GitHub at all, what a real Rekor entry and a ten-minute certificate look like,
+   where a verifier gets its trust anchors from and why that is TUF's job and not a policy,
    the nine lines it comes down to with the empty `VerificationOptions` that is the real gap, seven
    native builds to get sigstore-java into a GraalVM image — including three fixes of the wrong kind
    — and the argument I lost about shelling out to cosign.

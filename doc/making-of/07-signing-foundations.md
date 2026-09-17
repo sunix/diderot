@@ -301,16 +301,10 @@ sequenceDiagram
 ```
 
 One of those four questions is the one diderot cannot ask yet — the identity — and the code section
-below is where that shows up. The other three are answered from what the bundle already carries,
-checked against keys the client has to get from somewhere trustworthy, and that somewhere is
-**TUF**, The Update Framework. It is a specification for shipping files whose authenticity
-matters: metadata signed by a threshold of
-offline root keys, carrying expiry dates so a stale mirror cannot keep serving yesterday's trust
-root. Sigstore uses it for one narrow job — telling clients which public keys Fulcio and Rekor
-currently use. Hardcoding them would be simpler and would mean rebuilding every client in the world
-on every key rotation. The price is paid in the dependency graph instead: a TUF client, the HTTP
-stack it pulls with it, BouncyCastle for the certificate work. That weight is what cost seven native
-builds.
+below is where that shows up. The other three are answered from what the bundle already carries.
+Which leaves the participant at the top of that diagram unexplained, the one nothing so far has
+justified: **TUF**, and where a verifier gets Fulcio's and Rekor's keys from in the first place. That
+is its own question, and it gets its own section below, after the two services it vouches for.
 
 ### The ten-minute problem, which is what Rekor is for
 
@@ -402,6 +396,121 @@ That one says *a certificate was issued for this identity*. Rekor says *a signat
 it*. Different events, different logs, and it matters for what each one buys: CT makes a rogue
 certificate issuance detectable, Rekor makes a signature undeniable and dated.
 
+### Then who tells diderot that *this* Fulcio and *this* Rekor are the right ones?
+
+Everything above is evidence, and evidence has to be checked against something. To verify that
+certificate, a client needs Fulcio's root certificate. To verify that log proof, it needs Rekor's
+public key. So the question moves one level down and gets sharper: where do *those* come from?
+
+The tempting answer is the one that quietly moves the problem instead of solving it:
+
+```text
+diderot
+   │
+   ▼
+GET https://sigstore.dev/trust.json
+   │
+   ▼
+"looks good to me"
+```
+
+Downloading your trust anchors over TLS means trusting whoever can serve that URL — and, worse,
+trusting that nobody served you an *older* copy: a rolled-back trust root, a frozen one, or one
+missing the revocation you needed to see. That is the problem **TUF**, The Update Framework, was
+written for. It is not sigstore's invention and it has nothing to do with signing artifacts. It is a
+specification for distributing a set of files so that a client can tell whether what it received is
+current and authentic: every piece of metadata signed by a threshold of keys kept offline, with
+version numbers and expiry dates so a stale or substituted copy is detectable rather than merely
+unlikely.
+
+The concrete shape of it is sitting on this machine, put there by sigstore-java the first time
+diderot signed anything:
+
+```console
+$ ls ~/.sigstore-java/root/targets/
+artifact.pub                    rekor.pub
+ctfe.pub                        signing_config.json
+ctfe_2022.pub                   signing_config.v0.2.json
+fulcio.crt.pem                  signing_config_rekor_v2.v0.2.json
+fulcio_intermediate_v1.crt.pem  trusted_root.json
+fulcio_v1.crt.pem
+
+$ openssl x509 -in ~/.sigstore-java/root/targets/fulcio.crt.pem -noout -subject -dates
+subject=O = sigstore.dev, CN = sigstore
+notBefore=Mar  7 03:20:29 2021 GMT
+notAfter=Feb 23 03:20:29 2031 GMT
+```
+
+There they are as ordinary files: Fulcio's root certificate, Rekor's public key, and the CT log keys
+from the previous section. And the metadata that says those files are the current ones is signed the
+way TUF requires:
+
+```console
+$ jq '.signed | {version, expires, root_keys: (.roles.root.keyids|length),
+                 root_threshold: .roles.root.threshold,
+                 targets_threshold: .roles.targets.threshold}' ~/.sigstore-java/root/root.json
+{
+  "version": 15,
+  "expires": "2026-11-20T13:58:18Z",
+  "root_keys": 5,
+  "root_threshold": 3,
+  "targets_threshold": 3
+}
+```
+
+Three of five offline root keys have to agree before the trust root changes, and the whole document
+expires — so a mirror that stops updating stops being believed, rather than silently serving 2024's
+answer forever. `trusted_root.json` beside it is the bundle of material those keys vouch for, and it
+names the services by URL:
+
+```console
+$ jq '{cas: [.certificateAuthorities[].subject.commonName],
+       logs: [.tlogs[].baseUrl], ct: [.ctlogs[].baseUrl]}' \
+    ~/.sigstore-java/root/targets/trusted_root.json
+{
+  "cas":  [ "sigstore", "sigstore" ],
+  "logs": [ "https://rekor.sigstore.dev", "https://log2025-1.rekor.sigstore.dev" ],
+  "ct":   [ "https://ctfe.sigstore.dev/test", "https://ctfe.sigstore.dev/2022" ]
+}
+```
+
+Two Rekor instances, not one — sigstore added a second log and every client learned about it
+without being rebuilt, which is the argument for the whole mechanism in one line. The freshness
+machinery is visible in the file dates too: this morning's test run rewrote `timestamp.json`,
+`snapshot.json` and `targets.json` in the staging cache and left `root.json` exactly as it was in
+August. The short-lived metadata moves constantly; the root moves only when keys rotate.
+
+The alternative was hardcoding:
+
+```text
+static final String FULCIO_ROOT = "…";   // the version that never needs to change
+static final String REKOR_KEY    = "…";
+```
+
+That works, and it means every key rotation, every new log, every retired CA turns into *ship a new
+diderot and hope everyone upgrades*. With TUF the client is compiled with one durable fact — the TUF
+root — and reads the rest at run time. The price is in the dependency graph rather than in the
+release process: a TUF client, the HTTP stack it pulls along, BouncyCastle for the certificate work.
+That weight is exactly what cost seven native builds, two sections from here.
+
+And the distinction that makes this click, because it is the one I was blurring: **TUF never answers
+"do I trust `sunix/ai-skills`?"** It answers "which keys and authorities make sigstore's evidence
+checkable at all". The first question is diderot's, and nothing in sigstore can answer it for a
+project. Laid out by who answers what:
+
+| who | the question it answers |
+|---|---|
+| GitHub's OIDC issuer | which workflow is running right now? |
+| Fulcio | which key is bound to that identity, and for how long? |
+| the ephemeral key | did that key sign *this* digest? |
+| Rekor | was that signing recorded, and when? |
+| TUF | which Fulcio and which Rekor am I supposed to believe? |
+| **diderot** | **is the resulting identity the one this project pinned?** |
+
+Only the last row is an opinion. Every row above it is infrastructure an ecosystem agrees on; the
+last one is a decision a project makes once, in its manifest, and it is row 4 of the table this
+chapter opened with.
+
 ### If you keep one picture, keep this one
 
 Everything above is one chain, and the useful way to read it is as a sequence of statements, each
@@ -415,10 +524,13 @@ flowchart TD
     SIG --> RK["Rekor"]
     RK -->|"this signing was recorded, at this time"| EV["the bundle: signature, certificate, proof"]
     EV --> DID["diderot update"]
+    TUF["TUF trust root"] -.->|"these are the Fulcio and Rekor to believe"| DID
     DID -->|"is this the workflow the manifest pinned?"| OUT["accept, or fail closed"]
 ```
 
-Each link is one of the four questions from the start of the chapter. The digest travelling
+The dotted arrow is the one that comes from somewhere else entirely: TUF is not part of the signing
+story at all, it is what lets the verifier check any of it. Every other link is one of the four
+questions from the start of the chapter. The digest travelling
 untouched through all of it is row 1; the signature over it is row 2; the certificate naming the
 workflow is row 3; and the final arrow — the only claim diderot makes on its own behalf — is row 4,
 the one that needs a human to have said yes once.
