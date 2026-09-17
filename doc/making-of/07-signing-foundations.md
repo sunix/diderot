@@ -313,8 +313,9 @@ understands. Fulcio's whole job is turning the first into the second.
 
 ### Why Fulcio believes GitHub in the first place
 
-This was the question I could not answer when it was put to me, and the answer has two halves that
-are easy to merge into one wrong one. Fulcio does not accept tokens from whoever shows up: it carries
+I asked this one while reviewing the chapter, and neither Claude nor I could answer it from
+memory — so it got looked up, and the answer has two halves that are easy to merge into one wrong
+one. Fulcio does not accept tokens from whoever shows up: it carries
 an explicit allowlist of issuers, and the public instance will tell you what is on it:
 
 ```console
@@ -722,9 +723,8 @@ $ jq -c '[.tlogs[].baseUrl][0:2]' ~/.sigstore-java/staging/root/targets/trusted_
 ["https://rekor.sigstage.dev","https://log2025-alpha1.rekor.sigstage.dev"]
 ```
 
-`sigstage.dev`, not `sigstore.dev`. I could not find a page describing the staging instance in
-sigstore's documentation, but the repository that maintains its trust root says plainly what it is
-for:
+`sigstage.dev`, not `sigstore.dev`. We found no page describing the staging instance in sigstore's
+documentation, but the repository that maintains its trust root says plainly what it is for:
 
 > This project maintains a **staging** version of the root-signing TUF repository […] this is a
 > development and testing resource and should never be used as an actual source of truth by Sigstore
@@ -945,7 +945,8 @@ same API onto the slf4j already present, and has no adapters to fail. The whole 
 the next build.
 
 Round 5 is the one worth keeping for later, because the failed fix *reached* the build and did
-nothing — I checked the actual `native-image` command line rather than assuming the flag was lost:
+nothing, and Claude checked the actual `native-image` command line rather than assuming the flag
+had been dropped:
 
 ```text
 Error: Discovered unresolved type during parsing:
@@ -966,8 +967,8 @@ while grpc ships a *copy* of netty repackaged under `io.grpc.netty.shaded.*`, wh
 does not match. The fix was to stop using the copy: exclude `grpc-netty-shaded`, depend on the
 API-identical `grpc-netty` plus `quarkus-netty`, and let the substitution do its work.
 
-Round 6 left a single error, and its trace named the culprit — which was not the BouncyCastle I had
-been blaming on reputation:
+Round 6 left a single error, and its trace named the culprit — which was not the BouncyCastle that
+had been blamed on reputation for five rounds:
 
 ```text
 Trace: Object was reached by
@@ -1001,20 +1002,25 @@ That last sentence of the comment is a trap worth repeating out loud: `\,` insid
 unescapes it *before* the list is split, so the flag after the comma silently vanishes and the build
 fails as if the flag had never been written. Two flags as two list items is the form that works.
 
-## The argument I lost, and was wrong about
+## The way out I turned down
 
-Between rounds four and five I recommended giving up on in-process sigstore and shelling out to
-`cosign`, the way `GitCli` shells out to git. The case looked strong — I checked that cosign
-*requires* identity pinning in keyless mode, the exact check #6 lacked, and its `legacy` signature
-transport works on ghcr today.
+Between rounds four and five, Claude recommended giving up on in-process sigstore and shelling out
+to `cosign`, the way `GitCli` already shells out to git. The case was well made: it had checked that
+cosign *requires* identity pinning in keyless mode — the exact gap #6 left — and that its `legacy`
+signature transport works on ghcr today. Two of this chapter's open problems, closed by adopting
+somebody else's binary.
 
-The author said no: **users download nothing.** diderot's whole pitch is one line to install;
-requiring a second 135 MB binary contradicts it. Configure native-image until it works.
+I said no, and the reason is a product decision rather than a technical one: **users download
+nothing.** diderot's whole pitch is one line to install and no runtime to manage; telling people to
+also fetch a 135 MB binary contradicts the thing that makes it worth using. Keep configuring
+native-image until it works.
 
-He was right, and the rounds table above understates how close I was to being wrong twice: the
-recommendation came *after* round four, when the remaining depth looked unbounded — and it took
-exactly three more targeted fixes. The general shape is worth keeping: the cost of an external
-dependency is permanent and paid by every user; the cost of build configuration is paid once, here.
+It then took exactly three more targeted fixes. Which is worth recording in both directions, because
+it is the kind of moment that repeats: the recommendation arrived after round four, when the
+remaining depth genuinely looked unbounded, so it was not a foolish thing to propose — and an agent
+four rounds deep in the same failure is the worst placed to estimate how many rounds are left. The
+shape to keep is the trade being made: the cost of an external dependency is permanent and paid by
+every user, while the cost of build configuration is paid once, here, by me.
 
 ## What this chapter leaves open
 

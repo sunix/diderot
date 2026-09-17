@@ -50,7 +50,7 @@ chapter so each stays a readable size. Updated on request as the work progresses
    where a verifier gets its trust anchors from and why that is TUF's job and not a policy,
    the nine lines it comes down to with the empty `VerificationOptions` that is the real gap, seven
    native builds to get sigstore-java into a GraalVM image — including three fixes of the wrong kind
-   — and the argument I lost about shelling out to cosign.
+   — and the way out I turned down when Claude proposed shelling out to cosign.
 8. [Where a signature lives in a registry](doc/making-of/08-storing-a-signature.md) — **draft, not
    built yet**: publishing a signature is easy and finding it again is not, so why the link between a
    skill and its signature can only run one way, what the OCI referrers API solves, discovering that
