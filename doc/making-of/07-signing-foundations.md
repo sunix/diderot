@@ -623,10 +623,16 @@ policy, the last arrow, is the only opinion it holds, and that opinion lives in 
 manifest.
 
 And although the top of that chain says GitHub, none of it has to. GitLab CI mints its own OIDC
-tokens; an organisation can run its own Fulcio and Rekor against an internal issuer and keep the
-artifacts in Artifactory. The shape is unchanged and so is what diderot pins: a trusted issuer and a
-trusted identity, two strings in a manifest. That is the reason the policy belongs in
-`diderot.yaml` rather than compiled into the tool.
+tokens, an organisation that will not publish signing events to a public log can run its own Fulcio
+and Rekor, and the artifacts can live in Artifactory instead of ghcr.io. Only one thing changes for
+a verifier: which trust root it starts from — and sigstore-java already takes one, through
+`trustedRootProvider(…)` with either a private TUF mirror or a `trusted_root.json` on disk, in place
+of `sigstorePublicDefaults()`. What diderot would have to decide is where that root comes from and
+how it combines with a pinned signer, since on a private deployment both the issuer and the identity
+strings change. None of it is needed for the public instance, so it is filed rather than built:
+[issue #41](https://github.com/sunix/diderot/issues/41). The shape stays the same either way, and so
+does what a project pins — a trusted issuer and a trusted identity, two strings in a manifest, which
+is why that policy belongs in `diderot.yaml` rather than compiled into the tool.
 
 `sigstore-java` is the official Java client for those services. It is not a crypto library; the
 crypto underneath is the JDK's. It is the part that would otherwise have to be written by hand, and
