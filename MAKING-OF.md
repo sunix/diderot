@@ -42,11 +42,15 @@ chapter so each stays a readable size. Updated on request as the work progresses
    instead of serialising a model, pinning only the skill just added so nothing else in the lock
    moves, what all this is really preparing for on the signing side, and two rules a failing test
    knew better than I did.
-7. [Starting the signing work: two walls before any feature](doc/making-of/07-signing-foundations.md) —
-   resuming what part three parked: publishing a signature is easy and finding it again is not, so
-   why the link between a skill and its signature can only run one way, what the OCI referrers API
-   solves, discovering that ghcr.io does not implement it (measured against zot, since a bare 404
-   proves nothing) and that the spec had already written the fallback, seven native builds to get
-   sigstore-java into a GraalVM image, the argument I lost about shelling out to cosign, and the
-   never-regress rule for skills that are not signed yet.
+7. [Signing: the library, and seven builds to compile it](doc/making-of/07-signing-foundations.md) —
+   resuming what part three parked: what `^1.0.0` is worth without a pinned signer, why keyless
+   signing needs sigstore-java rather than `java.security`, the nine lines it comes down to and the
+   empty `VerificationOptions` that is the real gap, seven native builds to get it into a GraalVM
+   image — including three fixes of the wrong kind — and the argument I lost about shelling out to
+   cosign.
+8. [Where a signature lives in a registry](doc/making-of/08-storing-a-signature.md) — **draft, not
+   built yet**: publishing a signature is easy and finding it again is not, so why the link between a
+   skill and its signature can only run one way, what the OCI referrers API solves, discovering that
+   ghcr.io very probably does not implement it (measured against zot, since a bare 404 proves
+   nothing) and that the spec had already written the fallback.
 
