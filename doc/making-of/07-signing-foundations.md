@@ -206,14 +206,14 @@ goes like this instead — the three services from the table above, in order:
    ephemeral public key to the identity in the token;
 4. sign the bytes, and publish signature and certificate to Rekor, so the pairing is timestamped and
    publicly visible;
-5. throw the private key away.
+5. collect what came back into a **bundle** — signature, certificate, log proof, one document;
+6. throw the private key away.
 
-Those five steps are easier to hold as a picture, because almost none of the difficulty is
+Those six steps are easier to hold as a picture, because almost none of the difficulty is
 cryptography — it is who talks to whom, and in which order:
 
 ```mermaid
 sequenceDiagram
-    autonumber
     participant D as diderot push --sign
     participant O as GitHub OIDC issuer
     participant F as Fulcio, the CA
@@ -226,13 +226,66 @@ sequenceDiagram
     D->>D: 4a. sign the manifest digest
     D->>R: 4b. the signature and the certificate
     R-->>D: log index, timestamp, inclusion proof
-    D->>D: 5. throw the private key away
+    D->>D: 5. assemble the bundle from all three answers
+    D->>D: 6. throw the private key away
 ```
 
-What comes back is not just a signature. It is a **bundle**: the signature, the certificate saying
-who made it, and Rekor's proof that the two were logged while that certificate was still alive — one
-JSON document. Holding it is the point; finding somewhere to put it is [part
-eight](08-storing-a-signature.md).
+Step 5 is where the thing diderot actually has to keep comes into existence. What comes back from
+`signDigest` is not a signature on its own — a signature alone would be unusable, since nothing in it
+says whose key made it or when. It is a **bundle**: the three answers from the three services,
+collected into one JSON document.
+
+Rather than describe it, here is a real one, produced by running the code further down this chapter
+against sigstore's staging instance. Trimmed only where base64 would run for pages:
+
+```json
+{
+  "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+  "verificationMaterial": {
+    "tlogEntries": [{                                     // ← Rekor: when, and the proof of it
+      "logIndex": "56057400",
+      "kindVersion": { "kind": "hashedrekord", "version": "0.0.1" },
+      "integratedTime": "1789666806",
+      "inclusionPromise": { "signedEntryTimestamp": "MEYCIQDVOWQDjdsYl3BUh5yp/fed…" },
+      "inclusionProof": {
+        "logIndex": "24374988",
+        "rootHash": "o9L4lTjfmn+oiZfa+2rH3bT/7Z+2…",
+        "treeSize": "24374989",
+        "hashes": [ … 16 of them … ],
+        "checkpoint": { "envelope": "…" }
+      },
+      "canonicalizedBody": "eyJhcGlWZXJzaW9uIjoiMC4wLjEi…"
+    }],
+    "certificate": { "rawBytes": "MIIDIjCCAqmgAwIBAgIUGEbCPWuQ…" }   // ← Fulcio: who
+  },
+  "messageSignature": {                                   // ← the key: what was signed
+    "messageDigest": {
+      "algorithm": "SHA2_256",
+      "digest": "dCK/yAXNSTicH41nv5xQzpOw0BCv0I+Ijz21DZCCo2k="
+    },
+    "signature": "MEUCIQCgk1RWT/FHk4fLAQEKuLXC…"
+  }
+}
+```
+
+5,694 bytes in full, and each of the three services left its part. `certificate` is the ten-minute
+certificate from Fulcio — decode those bytes and you get exactly the kind of certificate taken apart
+further down, except that this one, coming from a staging test run, names sigstore's conformance
+test account instead of a workflow. `tlogEntries` is Rekor's receipt: which position in the log, at
+what time, and an inclusion proof of sixteen hashes against a tree of 24,374,989 entries.
+`messageSignature` is what was actually signed.
+
+That last field is worth one command, because it closes a loop the code section will open. The digest
+in the bundle is base64, and the digest diderot signed was `sha256:7422bfc805cd…`:
+
+```console
+$ echo 'dCK/yAXNSTicH41nv5xQzpOw0BCv0I+Ijz21DZCCo2k=' | base64 -d | xxd -p -c32
+7422bfc805cd49389c1f8d67bf9c50ce93b0d010afd08f888f3db50d9082a369
+```
+
+The same bytes. The bundle attests to precisely the manifest digest that would sit in `diderot.lock`,
+which is the entire point of signing the digest rather than the files. Holding this document is what
+verification needs; finding somewhere to put it is [part eight](08-storing-a-signature.md).
 
 ### GitHub does not sign anything
 
