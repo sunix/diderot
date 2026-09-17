@@ -171,7 +171,7 @@ publisher pushes; with one, only what the *expected* publisher pushes. `^1.0.0` 
 faith renewed at every release.
 
 The starting point was not zero. Signing was built and proven against real Fulcio certificates and
-real Rekor entries back in [#6](https://github.com/sunix/diderot/pull/6), then deliberately parked:
+real Rekor entries back in [PR #6](https://github.com/sunix/diderot/pull/6), then deliberately parked:
 its verification accepted *any* valid signature — no identity pinning, which is the entire question.
 The `Signing` class comes back from that branch unchanged.
 
@@ -351,7 +351,8 @@ $ curl -s https://token.actions.githubusercontent.com/.well-known/openid-configu
 
 Fulcio fetches those keys, checks the JWT's signature against them, checks the *audience* — the
 `aud` claim, saying this token was minted for sigstore and not for something else that might replay
-it — and reads the rest of the claims. The distinction worth holding on to is that those two halves answer different questions:
+it — and reads the rest of the claims. The distinction worth holding on to is that those two halves
+answer different questions:
 
 > **OIDC discovery tells Fulcio *how* to verify a GitHub token. Fulcio's own configuration is what
 > says GitHub is an issuer it accepts at all.**
@@ -778,7 +779,8 @@ those become claims because *GitHub* puts them in the token it mints, which is t
 identity cannot be forged by whoever holds a registry credential.
 
 **And a prerequisite falls straight out of that `if`.** `ACTIONS_ID_TOKEN_REQUEST_TOKEN` and
-`ACTIONS_ID_TOKEN_REQUEST_URL` only exist when a workflow asks for them. ai-skills' publish workflow
+`ACTIONS_ID_TOKEN_REQUEST_URL` only exist when a workflow asks for them, and ai-skills'
+[publish workflow](https://github.com/sunix/ai-skills/blob/main/.github/workflows/push-skill-to-oci.yml)
 currently declares:
 
 ```yaml
@@ -843,7 +845,8 @@ well-formed, that the certificate chains to Fulcio, that the Rekor entry is genu
 signature covers this digest — all true, all necessary, and it never asks *whose* certificate it is.
 That call accepts a signature made two minutes ago by anyone who can log in to an OIDC provider. It
 is the difference between *"this was signed"* and *"this was signed by the workflow I named"*, and
-the whole of #6 turns on it being the first.
+turning the first into the second is what
+[issue #25](https://github.com/sunix/diderot/issues/25) exists for.
 
 ### Proof: two real signatures, one of them refused
 
@@ -938,8 +941,9 @@ three fixes were the wrong *kind* of fix:
 | 6 | one error left: `SecureRandom` in the image heap | read the trace instead of guessing |
 | 7 | — | green |
 
-Round 3's question had a good answer: `commons-logging` was only on the classpath because #6 put it
-there, for google-http-client's Apache transport — and `slf4j-api` was already wired by Quarkus. So
+Round 3's question had a good answer: `commons-logging` was only on the classpath because
+[PR #6](https://github.com/sunix/diderot/pull/6) put it there, for google-http-client's Apache
+transport — and `slf4j-api` was already wired by Quarkus. So
 instead of taming its one-adapter-per-backend zoo, stop shipping it: `jcl-over-slf4j` provides the
 same API onto the slf4j already present, and has no adapters to fail. The whole family vanished from
 the next build.
@@ -1006,7 +1010,8 @@ fails as if the flag had never been written. Two flags as two list items is the 
 
 Between rounds four and five, Claude recommended giving up on in-process sigstore and shelling out
 to `cosign`, the way `GitCli` already shells out to git. The case was well made: it had checked that
-cosign *requires* identity pinning in keyless mode — the exact gap #6 left — and that its `legacy`
+cosign *requires* identity pinning in keyless mode — the exact gap
+[PR #6](https://github.com/sunix/diderot/pull/6) left — and that its `legacy`
 signature transport works on ghcr today. Two of this chapter's open problems, closed by adopting
 somebody else's binary.
 
@@ -1028,7 +1033,8 @@ Everything user-visible, which in the terms of the four questions at the top mea
 has working code behind it and a test to prove it, but no user can benefit yet, because a signature
 nobody can find is a signature nobody checks: that is [part
 eight](08-storing-a-signature.md), drafted alongside this one, and the next step. Row 3 is the
-unpinned `VerificationOptions.builder().build()` from #6, the actual gap. Row 4 is the `signer:`
+unpinned `VerificationOptions.builder().build()` from
+[PR #6](https://github.com/sunix/diderot/pull/6), the actual gap. Row 4 is the `signer:`
 block in the manifest that would feed it, together with the never-regress rule for skills that are
 not signed yet; both are designed on [#25](https://github.com/sunix/diderot/issues/25) and built
 after the transport, each with the same native check on it.

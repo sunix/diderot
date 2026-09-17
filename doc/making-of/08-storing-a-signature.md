@@ -133,8 +133,8 @@ a build attestation, arrives through the same endpoint.
 
 ### Then I tried it on the registry that matters
 
-That is what #6 implemented, and it works — against the registry #6 tested on. ai-skills publishes to
-ghcr.io, so that is where it had to work:
+That is what [PR #6](https://github.com/sunix/diderot/pull/6) implemented, and it works — against
+the registry it was tested on. ai-skills publishes to ghcr.io, so that is where it had to work:
 
 ```console
 # ghcr.io, on two digests diderot resolves and pulls every day
