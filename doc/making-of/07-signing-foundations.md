@@ -170,11 +170,114 @@ run instead goes:
    so the pairing is timestamped and publicly visible;
 5. throw the private key away.
 
-Verification then has to check all of that: the certificate chains to Fulcio's root, the identity in
-it is the one expected, the signature covers the bytes, and the Rekor entry proves it all happened
-while the certificate was alive. Fulcio's and Rekor's own roots arrive through **TUF**, an update
-framework with its own client — which is where the dependency weight that cost seven builds comes
-from.
+Those five steps are easier to hold as a picture, because almost none of the difficulty is
+cryptography — it is who talks to whom, and in which order:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant D as diderot push --sign
+    participant O as GitHub OIDC issuer
+    participant F as Fulcio, the CA
+    participant R as Rekor, the log
+    D->>D: 1. generate an ephemeral keypair, in memory
+    D->>O: 2. ask for an identity token for this job
+    O-->>D: a JWT naming the workflow, repo and commit
+    D->>F: 3. the ephemeral public key, plus that token
+    F-->>D: a certificate binding key to identity, valid ten minutes
+    D->>D: 4a. sign the manifest digest
+    D->>R: 4b. the signature and the certificate
+    R-->>D: log index, timestamp, inclusion proof
+    D->>D: 5. throw the private key away
+```
+
+What comes back is not just a signature. It is a **bundle**: the signature, the certificate saying
+who made it, and Rekor's proof that the two were logged while that certificate was still alive — one
+JSON document. Holding it is the point; finding somewhere to put it is [part
+eight](08-storing-a-signature.md).
+
+Verification runs those same facts backwards, and its shape brings in the one acronym still
+unexplained:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as diderot update
+    participant T as the TUF trust root
+    participant B as the bundle
+    U->>T: which keys do Fulcio and Rekor use today?
+    T-->>U: signed, expiring metadata, rotatable rather than compiled in
+    U->>B: does the certificate chain to Fulcio's root?
+    U->>B: is the identity in it the workflow we expect? (not built yet)
+    U->>B: does the signature cover this digest?
+    U->>B: is Rekor's proof genuine, and dated inside those ten minutes?
+```
+
+One of those four questions is the one diderot cannot ask yet — the identity — and the code section
+below is where that shows up. But first notice what is *not* in the diagram at all: a call to
+Rekor. The bundle carries its own proof, so
+verification is arithmetic against keys the client already holds — which is exactly why it needs
+those keys from somewhere trustworthy, and that is **TUF**, The Update Framework. It is a
+specification for shipping files whose authenticity matters: metadata signed by a threshold of
+offline root keys, carrying expiry dates so a stale mirror cannot keep serving yesterday's trust
+root. Sigstore uses it for one narrow job — telling clients which public keys Fulcio and Rekor
+currently use. Hardcoding them would be simpler and would mean rebuilding every client in the world
+on every key rotation. The price is paid in the dependency graph instead: a TUF client, the HTTP
+stack it pulls with it, BouncyCastle for the certificate work. That weight is what cost seven native
+builds.
+
+### What actually lands in Rekor
+
+Rekor is public, which makes this checkable rather than assertable. diderot has no entry there yet,
+so the one to look at is somebody else's with exactly the identity this chapter keeps describing: npm
+publishes provenance for `@sigstore/bundle`, signed by sigstore-js's release workflow, and that run
+left entry `1697019799` in the log. First, what an entry even is:
+
+```console
+$ curl -s 'https://rekor.sigstore.dev/api/v1/log/entries?logIndex=1697019799' \
+    | jq -r 'to_entries[0].value | {logIndex, integratedTime, kind: (.body|@base64d|fromjson|.kind)}'
+{
+  "logIndex": 1697019799,
+  "integratedTime": 1780347770,
+  "kind": "dsse"
+}
+```
+
+A position in an append-only log, the moment it was accepted, and a kind. This one is `dsse` because
+npm logs a signed statement about a build; diderot's will read `hashedrekord` — one hash, the
+manifest digest that `rawDigestBytes` below turns into bytes. The valuable half is identical either
+way, and it is the certificate the entry carries. Watch for three things: how long it lives, and
+then the two lines a verifier pins.
+
+```console
+$ curl -s 'https://rekor.sigstore.dev/api/v1/log/entries?logIndex=1697019799' \
+    | jq -r 'to_entries[0].value.body' | base64 -d \
+    | jq -r '.spec.signatures[0].verifier' | base64 -d \
+    | openssl x509 -noout -text                                    # trimmed to what matters
+        Issuer: O = sigstore.dev, CN = sigstore-intermediate
+        Validity
+            Not Before: Jun  1 21:02:50 2026 GMT                   # ten minutes, exactly
+            Not After : Jun  1 21:12:50 2026 GMT
+        Subject:                                                   # empty: nobody's name
+        X509v3 Subject Alternative Name: critical
+            URI:https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main
+        1.3.6.1.4.1.57264.1.1:                                     # the OIDC issuer
+            https://token.actions.githubusercontent.com
+        1.3.6.1.4.1.57264.1.2:                                     # what triggered the run
+            push
+        1.3.6.1.4.1.57264.1.3:                                     # the commit it built
+            7d2900eca1c22b3f87c13987c8d4b7c9a29b733a
+        1.3.6.1.4.1.57264.1.5:                                     # the repository
+            sigstore/sigstore-js
+        1.3.6.1.4.1.57264.1.6:                                     # the ref it ran on
+            refs/heads/main
+```
+
+There is the ten-minute certificate from step 3, not as folklore but with the two timestamps on it.
+There is no subject in the ordinary sense — no name, no organisation — and in its place a URI naming
+a workflow file at a ref, alongside GitHub's issuer and the commit that produced it. Identity pinning
+is a string comparison against those two lines, and the reason a leaked registry token cannot
+manufacture one is that every claim in there was minted by GitHub for a run in that repository.
 
 `sigstore-java` is the official Java client for those services. It is not a crypto library; the
 crypto underneath is the JDK's. It is the part that would otherwise have to be written by hand, and
@@ -184,8 +287,18 @@ signature that verifies when it should not.
 
 ## The code it comes down to
 
+*The goal of this part: turn both diagrams into something diderot can call — sign the one string a
+consumer actually resolves, `sha256:…` as it lands in `diderot.lock`, and verify it later from
+nothing but that string and a bundle. Two files to have open, both restored from the parked branch:
+[`Signing.java`](../../src/main/java/org/sunix/diderot/oci/Signing.java), 99 lines, and
+[`SigningTest.java`](../../src/test/java/org/sunix/diderot/oci/SigningTest.java), which is the proof
+at the end of this section.*
+
 Signing is nine lines once the builder is out of the way. `Signing` is the third class allowed to
-talk to an outside system, after `GitCli` for git and `OrasClient` for registries:
+talk to an outside system, after `GitCli` for git and `OrasClient` for registries — and the reason it
+stays that short is that the whole of the first diagram, steps 1 to 5, hides inside a single call in
+the middle of it. Read it looking for where the OIDC token and Rekor appear; the answer is that they
+do not, because `signer.sign(…)` is all of them.
 
 ```java
 /** Signs an OCI manifest digest ({@code sha256:<hex>}) and returns the sigstore bundle as JSON. */
@@ -210,10 +323,15 @@ public String signDigest(String digest) throws IOException {
 }
 ```
 
-`sigstorePublicDefaults()` versus `sigstoreStagingDefaults()` is the whole difference between the
-real transparency log and the test one — staging exists so tests can sign for real without writing
-to a public permanent log, and `oidcClients` lets those tests supply a non-interactive identity
-instead of opening a browser.
+Mapped back onto the diagram: the builder decides *which* services a run talks to.
+`sigstorePublicDefaults()` is the real Fulcio, the real Rekor and the production TUF root;
+`sigstoreStagingDefaults()` their staging twins, which is how a test signs for real without writing
+to a permanent public log. `oidcClients` is step 2's identity source, and note that it is an
+override, not a requirement: on a GitHub runner sigstore-java finds the ambient token by itself, so
+signing in CI needs no plumbing, while a test can hand it a non-interactive identity instead of
+opening a browser. Then `sign()` performs steps 1, 3, 4 and 5 and returns the `Bundle` — certificate,
+signature and Rekor proof together — which `toJson()` flattens into the document that today has
+nowhere to go.
 
 What gets signed is worth pausing on, because it is the decision everything else rests on:
 
@@ -268,6 +386,55 @@ signature covers this digest — all true, all necessary, and it never asks *who
 That call accepts a signature made two minutes ago by anyone who can log in to an OIDC provider. It
 is the difference between *"this was signed"* and *"this was signed by the workflow I named"*, and
 the whole of #6 turns on it being the first.
+
+### Proof: two real signatures, one of them refused
+
+`Signing` comes back from the parked branch with its test, and the test earns its place by what it
+refuses to fake. `SigningTest` signs against sigstore's **staging** Fulcio and Rekor — a real
+certificate issued, a real entry written to a real log — using the "untrusted testing token" sigstore
+publishes for exactly this purpose, so nothing opens a browser and nothing lands in the production
+log. There is no mock anywhere in it: if the protocol in those two diagrams were wrong, this would
+not pass.
+
+The first of the two tests signs a digest and verifies it, which proves the round trip. The second is
+the one with teeth:
+
+```java
+@Test
+void verificationFailsClosedWhenTheBundleIsForADifferentDigest() throws Exception {
+    String signedDigest = sha256Of("what was actually signed");
+    String bundle = signing.signDigest(signedDigest);
+
+    String substitutedDigest = sha256Of("what an attacker wants installed instead");
+    assertThrows(IOException.class, () -> signing.verifyDigest(substitutedDigest, bundle),
+            "a valid signature for one digest must not verify a different one");
+}
+```
+
+It signs one digest, then asks for a *different* one to be verified with that bundle. Every part of
+the bundle is genuine — same certificate, same Rekor entry, nothing tampered with — and it still has
+to fail, because a signature that verifies any digest protects none. sigstore-java is precise about
+which check broke, and this is the message that comes back:
+
+```
+Signature verification failed for sha256:908f97cfca42e9044…:
+  Provided artifact digest does not match digest used for verification
+```
+
+Then both of them, against the live staging services:
+
+```console
+$ ./mvnw test -Dtest=SigningTest
+[INFO] Running org.sunix.diderot.oci.SigningTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.011 s -- in org.sunix.diderot.oci.SigningTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+```
+
+Most of those nine seconds are network: two OIDC exchanges, two certificates issued, two entries
+written to a transparency log. And it is worth saying plainly what this does *not* prove, since the
+whole chapter turns on it — both tests would pass just as happily on a bundle signed by a complete
+stranger, because nothing here ever asks whose certificate it is.
 
 ## Seven builds to compile it
 
