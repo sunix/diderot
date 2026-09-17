@@ -680,6 +680,117 @@ opening a browser. Then `sign()` performs steps 1, 3, 4 and 5 and returns the `B
 signature and Rekor proof together — which `toJson()` flattens into the document that today has
 nowhere to go.
 
+Three of those lines are worth more than a mapping, because answering them meant reading the
+library's source rather than trusting the method names.
+
+**What the `…Defaults()` calls actually pick.** The javadoc is one sentence, and the load-bearing
+word in it is *tuf root*:
+
+> Initialize a builder with the sigstore public good instance **tuf root** and oidc targets with
+> ecdsa signing.
+>
+> — [`KeylessSigner.Builder.sigstorePublicDefaults()`](https://javadoc.io/doc/dev.sigstore/sigstore-java/2.2.0/dev/sigstore/KeylessSigner.Builder.html)
+
+So the call does not configure a Fulcio URL and a Rekor URL. It configures *which trust root to
+start from*, and every service address is then read out of that root — the mechanism the TUF section
+above described, here as an API. One level down,
+[`SigstoreTufClient`](https://github.com/sigstore/sigstore-java/blob/v2.2.0/sigstore-java/src/main/java/dev/sigstore/tuf/SigstoreTufClient.java)
+shows what separates the two instances:
+
+```java
+public Builder useStagingInstance() {
+  …
+  tufMirror(
+      URI.create("https://tuf-repo-cdn.sigstage.dev"),
+      RootProvider.fromResource(STAGING_ROOT_RESOURCE));
+  tufCacheLocation =
+      Path.of(System.getProperty("user.home"))
+          .resolve(".sigstore-java")
+          .resolve("staging")
+          .resolve("root");
+```
+
+A different mirror, a different `root.json` compiled into the jar, a different cache directory — and
+that last one answers *"how would you know which instance you just talked to?"* without reading any
+code, because the two caches sit side by side on disk:
+
+```console
+$ jq -c '[.tlogs[].baseUrl][0:2]' ~/.sigstore-java/root/targets/trusted_root.json
+["https://rekor.sigstore.dev","https://log2025-1.rekor.sigstore.dev"]
+
+$ jq -c '[.tlogs[].baseUrl][0:2]' ~/.sigstore-java/staging/root/targets/trusted_root.json
+["https://rekor.sigstage.dev","https://log2025-alpha1.rekor.sigstage.dev"]
+```
+
+`sigstage.dev`, not `sigstore.dev`. I could not find a page describing the staging instance in
+sigstore's documentation, but the repository that maintains its trust root says plainly what it is
+for:
+
+> This project maintains a **staging** version of the root-signing TUF repository […] this is a
+> development and testing resource and should never be used as an actual source of truth by Sigstore
+> clients.
+>
+> — [sigstore/root-signing-staging](https://github.com/sigstore/root-signing-staging)
+
+Which is exactly the property the tests need: real cryptography, real certificates, a real log, and
+nothing that anyone will ever cite as evidence about a real artifact.
+
+**How it knows it is inside a GitHub Action.** `oidcClients` is a list tried in order, and the first
+one that says it can work wins — `OidcClients.from(…)` builds it as *token in an environment
+variable*, then *GitHub Actions*, then *open a browser*. The middle one's
+[whole check](https://github.com/sigstore/sigstore-java/blob/v2.2.0/sigstore-java/src/main/java/dev/sigstore/oidc/client/GithubActionsOidcClient.java)
+is environment variables, nothing else:
+
+```java
+static final String GITHUB_ACTIONS_KEY = "GITHUB_ACTIONS";
+static final String REQUEST_TOKEN_KEY = "ACTIONS_ID_TOKEN_REQUEST_TOKEN";
+static final String REQUEST_URL_KEY = "ACTIONS_ID_TOKEN_REQUEST_URL";
+
+public boolean isEnabled(Map<String, String> env) {
+  var githubActions = env.get(GITHUB_ACTIONS_KEY);
+  if (githubActions == null || githubActions.isEmpty()) {
+    …  // not in Actions at all
+  }
+  var bearer = env.get(REQUEST_TOKEN_KEY);
+  var urlBase = env.get(REQUEST_URL_KEY);
+  if (bearer == null || bearer.isEmpty() || urlBase == null || urlBase.isEmpty()) {
+    …  // in Actions, but no id-token permission
+  }
+  return true;
+}
+```
+
+And getting the token is one HTTP call against a service the runner provides, with the audience the
+certificate will be checked against:
+
+```java
+private static final String DEFAULT_AUDIENCE = "sigstore";
+…
+var url = new GenericUrl(urlBase + "&audience=" + audience);
+…
+req.getHeaders().setAuthorization("Bearer " + bearer);
+```
+
+That is the same mechanism GitHub documents for
+[hardening deployments with OpenID Connect](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect),
+and the class javadoc points at that page too. Nothing here reads the repository name or the branch:
+those become claims because *GitHub* puts them in the token it mints, which is the whole reason the
+identity cannot be forged by whoever holds a registry credential.
+
+**And a prerequisite falls straight out of that `if`.** `ACTIONS_ID_TOKEN_REQUEST_TOKEN` and
+`ACTIONS_ID_TOKEN_REQUEST_URL` only exist when a workflow asks for them. ai-skills' publish workflow
+currently declares:
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+```
+
+No `id-token: write`, so on that workflow `isEnabled` returns false today and keyless signing cannot
+run at all — it would fall through to the browser client and fail on a runner. One line of YAML, and
+it has to land before the first signed push is even possible. 
+
 What gets signed is worth pausing on, because it is the decision everything else rests on:
 
 ```java
