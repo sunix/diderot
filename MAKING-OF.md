@@ -43,11 +43,12 @@ chapter so each stays a readable size. Updated on request as the work progresses
    moves, what all this is really preparing for on the signing side, and two rules a failing test
    knew better than I did.
 7. [Signing: the library, and seven builds to compile it](doc/making-of/07-signing-foundations.md) —
-   resuming what part three parked: what `^1.0.0` is worth without a pinned signer, why keyless
-   signing needs sigstore-java rather than `java.security`, the nine lines it comes down to and the
-   empty `VerificationOptions` that is the real gap, seven native builds to get it into a GraalVM
-   image — including three fixes of the wrong kind — and the argument I lost about shelling out to
-   cosign.
+   resuming what part three parked: the four questions hiding inside the word "verified", what
+   `^1.0.0` is worth without a pinned signer, who actually signs in a keyless flow (not GitHub) and
+   why Fulcio believes GitHub at all, what a real Rekor entry and a ten-minute certificate look like,
+   the nine lines it comes down to with the empty `VerificationOptions` that is the real gap, seven
+   native builds to get sigstore-java into a GraalVM image — including three fixes of the wrong kind
+   — and the argument I lost about shelling out to cosign.
 8. [Where a signature lives in a registry](doc/making-of/08-storing-a-signature.md) — **draft, not
    built yet**: publishing a signature is easy and finding it again is not, so why the link between a
    skill and its signature can only run one way, what the OCI referrers API solves, discovering that

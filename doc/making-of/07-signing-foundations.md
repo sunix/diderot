@@ -86,6 +86,20 @@ Tuesday's work.
 Through all of it the content digest held, and it was always a narrow guarantee wearing a reassuring
 word.
 
+It is worth pulling that apart before any code, because four questions get blurred into one whenever
+someone says an artifact is "verified", and they have four different answers:
+
+| | the question | what answers it | does diderot have it? |
+|---|---|---|---|
+| 1 | **Integrity** — what exactly did I install? | the content digest: this artifact, byte for byte | yes, since part one |
+| 2 | **Signature** — was it signed at all? | a signature: somebody holding a private key signed *this* digest | no |
+| 3 | **Identity** — who signed it? | a certificate binding that key to an identity — a workflow in a repository, not a person | no |
+| 4 | **Trust** — do I accept that signer? | diderot's own policy: the identity pinned in `diderot.yaml` | no |
+
+Tuesday's compromise is entirely inside the gap between row 1 and row 4, and the shape of it is one
+sentence worth keeping: **trusting the registry is not the same thing as trusting the publisher.**
+ghcr.io is where bytes are distributed; it was never asked to say who made them.
+
 So the target, none of it built yet. At `add` time, the signer is discovered rather than typed,
 because you cannot type an identity you do not know:
 
@@ -108,10 +122,13 @@ locked making-of  ghcr.io/…/making-of:1.3.0@sha256:1f0c4ee2a8b3 (tree:9a2b77c4
 wrote diderot.lock
 ```
 
-The other ending is the leaked token from earlier. Whoever holds it can push whatever bytes they
-like — but they cannot sign as that workflow, because the identity in a keyless signature comes from
-an OIDC token GitHub mints for a workflow run in that repository, and no amount of registry access
-produces one. So they have exactly two options, and both stop here:
+The other ending is the leaked token from earlier, and it turns on two tokens that are easy to
+conflate. The one that leaked is a **registry** credential: it says "you may push to this
+repository", and it is checked by ghcr. The one that produces an identity is a **GitHub OIDC**
+token, minted for a specific workflow run, and it is checked by Fulcio. Whoever holds the first can
+push whatever bytes they like, and cannot obtain the second: no amount of registry access causes
+GitHub to mint a token claiming to be someone else's workflow. So they have exactly two options, and
+both stop here:
 
 ```console
 $ diderot update
@@ -196,6 +213,76 @@ who made it, and Rekor's proof that the two were logged while that certificate w
 JSON document. Holding it is the point; finding somewhere to put it is [part
 eight](08-storing-a-signature.md).
 
+### GitHub does not sign anything
+
+That diagram corrects the thing I had backwards in my own head at first, and it is worth stating
+flatly: **GitHub never signs the artifact.** It authenticates the workflow, and stops there. The
+token it mints says *the job running right now is `…/push-skill-to-oci.yml` on `refs/heads/main` of
+`sunix/ai-skills`* — claims GitHub fills in, not the job — and it is signed with GitHub's own keys.
+Fulcio reads that token and issues a certificate binding those claims to the ephemeral public key
+from step 1. The signature over the digest is made by the matching private key, on the runner,
+seconds before it is thrown away.
+
+Four parties, one job each, and none of them doing another's:
+
+| who | does exactly one thing |
+|---|---|
+| GitHub | states which workflow is running |
+| Fulcio | binds that statement to a key, for ten minutes |
+| the ephemeral key | signs the digest |
+| Rekor | records that the signing happened, and when |
+
+Which makes Fulcio easier to name than "the sigstore CA": it is a **bridge from OIDC identities to
+ordinary public-key cryptography**. An OIDC token is a statement about who you are that expires in
+minutes and that no X.509 verifier understands; a certificate is something every verifier already
+understands. Fulcio's whole job is turning the first into the second.
+
+### Why Fulcio believes GitHub in the first place
+
+This was the question I could not answer when it was put to me, and the answer has two halves that
+are easy to merge into one wrong one. Fulcio does not accept tokens from whoever shows up: it carries
+an explicit allowlist of issuers, and the public instance will tell you what is on it:
+
+```console
+$ curl -s https://fulcio.sigstore.dev/api/v2/configuration | jq '.issuers | length'
+27
+
+$ curl -s https://fulcio.sigstore.dev/api/v2/configuration \
+    | jq '[.issuers[] | select(.issuerUrl // "" | contains("githubusercontent"))][0]
+          | {issuerUrl, audience, challengeClaim, issuerType}'
+{
+  "issuerUrl": "https://token.actions.githubusercontent.com",
+  "audience": "sigstore",
+  "challengeClaim": "sub",
+  "issuerType": "ci-provider"
+}
+```
+
+Twenty-seven issuers, one of which is GitHub Actions — and `challengeClaim: "sub"` is the line that
+decides what ends up in the certificate: the `sub` claim, which for a GitHub job is the workflow ref
+that later gets pinned.
+
+The other half is *how* Fulcio checks a token it receives, and that is plain OIDC: the issuer
+publishes its metadata and its signing keys at well-known URLs, and anyone can read them.
+
+```console
+$ curl -s https://token.actions.githubusercontent.com/.well-known/openid-configuration \
+    | jq '{issuer, jwks_uri}'
+{
+  "issuer": "https://token.actions.githubusercontent.com",
+  "jwks_uri": "https://token.actions.githubusercontent.com/.well-known/jwks"
+}
+```
+
+Fulcio fetches those keys, checks the JWT's signature against them, checks the audience, and reads
+the claims. The distinction worth holding on to is that those two halves answer different questions:
+
+> **OIDC discovery tells Fulcio *how* to verify a GitHub token. Fulcio's own configuration is what
+> says GitHub is an issuer it accepts at all.**
+
+Discovery on its own establishes nothing — anybody can publish a `.well-known` document. Trust is the
+allowlist, and it is a deliberate, reviewable decision made by the people who run that CA.
+
 Verification runs those same facts backwards, and its shape brings in the one acronym still
 unexplained:
 
@@ -214,17 +301,35 @@ sequenceDiagram
 ```
 
 One of those four questions is the one diderot cannot ask yet — the identity — and the code section
-below is where that shows up. But first notice what is *not* in the diagram at all: a call to
-Rekor. The bundle carries its own proof, so
-verification is arithmetic against keys the client already holds — which is exactly why it needs
-those keys from somewhere trustworthy, and that is **TUF**, The Update Framework. It is a
-specification for shipping files whose authenticity matters: metadata signed by a threshold of
+below is where that shows up. The other three are answered from what the bundle already carries,
+checked against keys the client has to get from somewhere trustworthy, and that somewhere is
+**TUF**, The Update Framework. It is a specification for shipping files whose authenticity
+matters: metadata signed by a threshold of
 offline root keys, carrying expiry dates so a stale mirror cannot keep serving yesterday's trust
 root. Sigstore uses it for one narrow job — telling clients which public keys Fulcio and Rekor
 currently use. Hardcoding them would be simpler and would mean rebuilding every client in the world
 on every key rotation. The price is paid in the dependency graph instead: a TUF client, the HTTP
 stack it pulls with it, BouncyCastle for the certificate work. That weight is what cost seven native
 builds.
+
+### The ten-minute problem, which is what Rekor is for
+
+A certificate that expires in ten minutes is excellent hygiene and an obvious difficulty: `update`
+runs a year later, and by then the certificate has been dead for a year. Checking "is this
+certificate valid *now*" would reject every signature ever made. The question a verifier actually has
+to answer is the harder one — **was this signature produced while that certificate was alive?** —
+and nothing in the signature itself can answer it, because anyone can claim a date.
+
+That is Rekor's whole reason to exist. The signature and the certificate are submitted to an
+append-only log, which countersigns them with a timestamp of its own and returns an inclusion proof.
+Verification then compares two facts that arrived from different places, and the entry printed
+further down has both: the certificate says *valid from 21:02:50 to 21:12:50 on 1 June*, and the log
+says `integratedTime: 1780347770`, which is 21:02:50 that same day. Inside the window, so the
+signature is pinned to a moment — and the ten-minute lifetime turns from an obstacle into the point,
+because a certificate obtained afterwards is worth nothing.
+
+So the division of labour between the two services is: **Fulcio establishes who could sign; Rekor is
+the evidence that this particular signing happened, and when.**
 
 ### What actually lands in Rekor
 
@@ -278,6 +383,59 @@ There is no subject in the ordinary sense — no name, no organisation — and i
 a workflow file at a ref, alongside GitHub's issuer and the commit that produced it. Identity pinning
 is a string comparison against those two lines, and the reason a leaked registry token cannot
 manufacture one is that every claim in there was minted by GitHub for a run in that repository.
+
+That same output settles something I had confused, because there are *two* transparency logs in
+this story and they record different events. Further down the certificate, past the identity, sits a
+receipt from a **Certificate Transparency** log — the same machinery the web PKI uses — proving the
+certificate itself was published when it was issued:
+
+```console
+            CT Precertificate SCTs:
+                Signed Certificate Timestamp:
+                    Version   : v1 (0x0)
+                    Log ID    : DD:3D:30:6A:C6:C7:11:32:63:19:1E:1C:99:67:37:02:
+                                A2:4A:5E:B8:DE:3C:AD:FF:87:8A:72:80:2F:29:EE:8E
+                    Timestamp : Jun  1 21:02:50.572 2026 GMT
+```
+
+That one says *a certificate was issued for this identity*. Rekor says *a signature was made with
+it*. Different events, different logs, and it matters for what each one buys: CT makes a rogue
+certificate issuance detectable, Rekor makes a signature undeniable and dated.
+
+### If you keep one picture, keep this one
+
+Everything above is one chain, and the useful way to read it is as a sequence of statements, each
+made by whoever is actually in a position to make it:
+
+```mermaid
+flowchart TD
+    GH["GitHub Actions run"] -->|"I am workflow push-skill-to-oci.yml on main"| FU["Fulcio"]
+    FU -->|"I bind that workflow to this key, for ten minutes"| KEY["ephemeral private key"]
+    KEY -->|"this key signed sha256:8b81085393c4…"| SIG["signature"]
+    SIG --> RK["Rekor"]
+    RK -->|"this signing was recorded, at this time"| EV["the bundle: signature, certificate, proof"]
+    EV --> DID["diderot update"]
+    DID -->|"is this the workflow the manifest pinned?"| OUT["accept, or fail closed"]
+```
+
+Each link is one of the four questions from the start of the chapter. The digest travelling
+untouched through all of it is row 1; the signature over it is row 2; the certificate naming the
+workflow is row 3; and the final arrow — the only claim diderot makes on its own behalf — is row 4,
+the one that needs a human to have said yes once.
+
+Note what is *not* in that picture: diderot never asks Fulcio "is this signature valid?", and never
+asks Rekor "did this signing happen?". Those services **produce and publish evidence**; the consumer
+verifies it. Everything needed is in the bundle plus the keys TUF supplies, which is why
+verification works from a laptop with a cached trust root and why an outage at sigstore cannot stop
+an install. It also means the chain has no step where diderot asks anyone for permission — the
+policy, the last arrow, is the only opinion it holds, and that opinion lives in the project's
+manifest.
+
+And although the top of that chain says GitHub, none of it has to. GitLab CI mints its own OIDC
+tokens; an organisation can run its own Fulcio and Rekor against an internal issuer and keep the
+artifacts in Artifactory. The shape is unchanged and so is what diderot pins: a trusted issuer and a
+trusted identity, two strings in a manifest. That is the reason the policy belongs in
+`diderot.yaml` rather than compiled into the tool.
 
 `sigstore-java` is the official Java client for those services. It is not a crypto library; the
 crypto underneath is the JDK's. It is the part that would otherwise have to be written by hand, and
@@ -528,11 +686,13 @@ dependency is permanent and paid by every user; the cost of build configuration 
 
 ## What this chapter leaves open
 
-Everything user-visible. Where a signature is stored and how it is found again is
-[part eight](08-storing-a-signature.md), drafted alongside this one. Identity pinning is still the
-unpinned `VerificationOptions.builder().build()` from #6 — the actual gap — and the `signer:` block
-in the manifest that would feed it, along with the never-regress rule for skills that are not signed
-yet, are designed on [#25](https://github.com/sunix/diderot/issues/25) and built after the transport.
+Everything user-visible — and in the terms of the four questions at the top, rows 2, 3 and 4 are all
+still open. Where a signature is stored and how it is found again is [part
+eight](08-storing-a-signature.md), drafted alongside this one, and it is what row 2 waits on. Row 3
+is the unpinned `VerificationOptions.builder().build()` from #6, the actual gap. Row 4 is the
+`signer:` block in the manifest that would feed it, together with the never-regress rule for skills
+that are not signed yet; both are designed on
+[#25](https://github.com/sunix/diderot/issues/25) and built after the transport.
 
 And one honest caveat carried forward from part five's postscript:
 `native-smoke` proves the binary builds and starts, not that the keyless flow — TUF roots, Fulcio,
