@@ -1049,3 +1049,21 @@ And one honest caveat carried forward from part five's postscript:
 `native-smoke` proves the binary builds and starts, not that the keyless flow — TUF roots, Fulcio,
 Rekor — runs in a native image. That gets its real test when the publish workflow signs with the
 ambient GitHub OIDC token.
+
+## Long, and worth it
+
+This step took far longer than its diff suggests: seven native builds, a library I had to defend
+keeping, and a chapter rewritten more times than the code it describes. Signing is not finished —
+a signature still has nowhere to live, and nothing yet asks whose certificate it is. I am
+nonetheless very happy with what Claude and I ended up with, because it is a foundation rather than
+a demo: the piece everything else hangs from, working, proven against real certificates and a real
+transparency log, and compiling into the binary people actually run.
+
+The other half of what I got out of it was learning the thing properly. I knew the words — OIDC,
+Fulcio, Rekor, TUF — the way you know the names of roads you have never driven. Writing it down
+forced each one to earn its place, which is how "I trust this artifact" turned into four separate
+questions with four different answers, and how a lot of hand-waving turned into things I actually
+checked: a real Rekor entry, a certificate alive for ten minutes, a trust root sitting in a
+directory on my own laptop. If you take as much from reading this as I took from building it, it
+will have been a good trade for both of us. [Part eight](08-storing-a-signature.md) is where the
+signature finally gets somewhere to live.
