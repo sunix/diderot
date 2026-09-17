@@ -916,13 +916,23 @@ of the image by `native-image`, which traces from entry points. Without one reac
 would go green while proving nothing at all. The flag makes the check mean something, for this step
 and every step after it.
 
+One piece of vocabulary first, because the table below leans on it. `native-image` runs static
+initialisers **at build time** by default and freezes whatever they produce into the image's heap —
+that is a large part of why the binary starts in milliseconds instead of booting a JVM. It also means
+a class that reaches for something absent while it initialises, a logging backend that is not on the
+classpath say, blows up during the *build* rather than at run time. **Deferring** a class is telling
+`native-image` to leave its initialiser alone until the program actually runs:
+`--initialize-at-run-time=<class or package>`, passed through
+`quarkus.native.additional-build-args` in `application.properties`. Rounds 1 and 2 below are that
+flag, aimed first at one class and then at a whole package.
+
 The answer took seven rounds, each about ten minutes, and the instructive part is that the first
 three fixes were the wrong *kind* of fix:
 
 | round | failure | lesson |
 |---|---|---|
-| 1 | `Log4JLogger` init fails: `NoClassDefFoundError: org/apache/log4j/Priority` | deferred that class |
-| 2 | same, now `Log4jApiLogFactory` (log4j2's adapter) | deferred the whole package |
+| 1 | `Log4JLogger` init fails: `NoClassDefFoundError: org/apache/log4j/Priority` | deferred that one class |
+| 2 | same, now `Log4jApiLogFactory` (log4j2's adapter) | deferred its whole package |
 | 3 | `Slf4jLogFactory` **instances in the image heap** | stop naming classes, ask why the dependency is there |
 | 4–5 | shaded netty's logging probe: `Log4J2Logger` unresolved at parse | deferring is provably useless here |
 | 6 | one error left: `SecureRandom` in the image heap | read the trace instead of guessing |
@@ -949,10 +959,12 @@ netty probes logging backends in a static initialiser, and `--initialize-at-run-
 the initialiser still has to be **compiled into the image** to run later, the parser still meets the
 absent class inside it, and Quarkus links everything at build time, so an unresolved type is fatal
 at parse regardless of when the class initialises. Deferring changes *when*; the problem was *what*.
-Quarkus's netty extension solves it the only way that works — a substitution that removes the probe —
-but it only sees real netty, and grpc ships a *copy* under `io.grpc.netty.shaded.*`. The fix was to
-stop using the copy: exclude `grpc-netty-shaded`, depend on the API-identical `grpc-netty` plus
-`quarkus-netty`, and let the substitution do its work.
+Quarkus's netty extension solves it the only way that works: a **substitution**, GraalVM's mechanism
+for replacing a method's body at build time, which removes the probe entirely so the parser never
+meets the missing class. But a substitution targets a named class, and it only names real netty —
+while grpc ships a *copy* of netty repackaged under `io.grpc.netty.shaded.*`, which the substitution
+does not match. The fix was to stop using the copy: exclude `grpc-netty-shaded`, depend on the
+API-identical `grpc-netty` plus `quarkus-netty`, and let the substitution do its work.
 
 Round 6 left a single error, and its trace named the culprit — which was not the BouncyCastle I had
 been blaming on reputation:
@@ -971,11 +983,23 @@ build: success
 native-smoke: success
 ```
 
-What survives of six rounds of flailing is two lines in `application.properties` and two dependency
-changes in the pom. There is also a properties-format trap recorded for whoever touches that line
-next: `\,` inside `quarkus.native.additional-build-args` does not escape the list separator — the
-properties format unescapes it *before* the list is split, so the flag after the comma silently
-vanishes. Two flags as two list items is the form that works.
+What survives of six rounds of flailing is one line of configuration and two dependency changes in
+the pom. The line, with the comment that explains it to whoever meets it next:
+
+```properties
+# Two static initialisers capture SecureRandom state that must not be baked into the image heap:
+# BouncyCastle's (the standard GraalVM remedy for BC), and Apache HttpClient's NTLM engine, whose
+# RND_GEN static field the round-six build trace named explicitly - it rides in via
+# google-http-client-apache-v2 and is never used here, NTLM being a Windows-auth scheme. The comma
+# separates two complete arguments; a comma *inside* one argument is what an earlier attempt lost a
+# flag to, the properties format unescaping `\,` before the list is split.
+quarkus.native.additional-build-args=--initialize-at-run-time=org.bouncycastle,--initialize-at-run-time=org.apache.http.impl.auth.NTLMEngineImpl
+```
+
+That last sentence of the comment is a trap worth repeating out loud: `\,` inside
+`quarkus.native.additional-build-args` does not escape the list separator. The properties format
+unescapes it *before* the list is split, so the flag after the comma silently vanishes and the build
+fails as if the flag had never been written. Two flags as two list items is the form that works.
 
 ## The argument I lost, and was wrong about
 
