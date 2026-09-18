@@ -38,5 +38,11 @@ public class LockFile {
          * verifies and status compares against — a tag can be re-pushed, a tree SHA cannot lie.
          */
         public String digest;
+        /**
+         * The signer verified at lock time, recorded so a human can read who vouched for what is
+         * installed — and so a later step can tell a skill that lost its signature from one that
+         * never had one. Absent for skills with no pinned signer.
+         */
+        public Signer signer;
     }
 }

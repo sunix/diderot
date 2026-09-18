@@ -59,3 +59,10 @@ chapter so each stays a readable size. Updated on request as the work progresses
    instead of the content. What Helm, PyPI and Maven do instead, why the signature can then ride
    inside the artifact, why signing needed a digest that is not git's SHA-1, and one signature that
    covers the same skill under every tag.
+9. [Checking who signed it, and refusing when it is somebody else](doc/making-of/09-verifying-the-signer.md) —
+   a stored signature is not a checked one: pinning a signer as an identity *and* an issuer and why
+   both, an API with no unpinned overload so the old behaviour cannot be expressed, verifying the
+   content recomputed from disk rather than anything a registry said, failing closed with nothing
+   written, checking again at install because a lockfile arrives from teammates, what a consumer
+   actually needs at run time (neither Fulcio nor Rekor — measured in a network namespace), and five
+   ways to arrive at it, two of them refusals.

@@ -2,16 +2,22 @@ package org.sunix.diderot.oci;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.util.Collection;
 import java.util.HexFormat;
+import java.util.List;
 
 import dev.sigstore.KeylessSigner;
 import dev.sigstore.KeylessSignerException;
 import dev.sigstore.KeylessVerificationException;
 import dev.sigstore.KeylessVerifier;
 import dev.sigstore.VerificationOptions;
+import dev.sigstore.VerificationOptions.CertificateMatcher;
 import dev.sigstore.bundle.Bundle;
 import dev.sigstore.bundle.BundleParseException;
 import dev.sigstore.oidc.client.OidcClients;
+import dev.sigstore.strings.StringMatcher;
 
 /**
  * The sigstore boundary: the third external system diderot talks to, alongside git (GitCli) and
@@ -65,24 +71,71 @@ public class Signing {
         }
     }
 
-    /** Verifies a sigstore bundle (JSON) against the OCI manifest digest it should attest to. */
-    public void verifyDigest(String digest, String bundleJson) throws IOException {
+    /**
+     * Verifies a sigstore bundle (JSON) against the OCI manifest digest it should attest to
+     * <em>and</em> against the signer it must come from. Both identity arguments are required: an
+     * unpinned verification answers "this was signed", which is a different and much weaker
+     * statement than "this was signed by the workflow this project trusts".
+     *
+     * @param expectedIdentity the certificate's subject alternative name, e.g. a workflow ref
+     * @param expectedIssuer the OIDC issuer that minted the identity token, e.g.
+     *        {@code https://token.actions.githubusercontent.com}
+     */
+    public void verifyDigest(String digest, String bundleJson, String expectedIdentity, String expectedIssuer)
+            throws IOException {
+        if (expectedIdentity == null || expectedIdentity.isBlank()
+                || expectedIssuer == null || expectedIssuer.isBlank()) {
+            throw new IllegalArgumentException("Verification needs both an expected identity and issuer");
+        }
         KeylessVerifier.Builder builder = KeylessVerifier.builder();
         if (staging) {
             builder.sigstoreStagingDefaults();
         } else {
             builder.sigstorePublicDefaults();
         }
+        VerificationOptions options = VerificationOptions.builder()
+                .addCertificateMatchers(CertificateMatcher.fulcio()
+                        .subjectAlternativeName(StringMatcher.string(expectedIdentity))
+                        .issuer(StringMatcher.string(expectedIssuer))
+                        .build())
+                .build();
         try {
             KeylessVerifier verifier = builder.build();
             Bundle bundle = Bundle.from(new StringReader(bundleJson));
-            verifier.verify(rawDigestBytes(digest), bundle, VerificationOptions.builder().build());
+            verifier.verify(rawDigestBytes(digest), bundle, options);
         } catch (KeylessVerificationException e) {
             throw new IOException("Signature verification failed for " + digest + ": " + e.getMessage(), e);
         } catch (BundleParseException e) {
             throw new IOException("Could not parse the sigstore bundle for " + digest + ": " + e.getMessage(), e);
         } catch (Exception e) {
             throw new IOException("Could not build a sigstore verifier: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The identity a bundle actually carries, for error messages: a refusal that says only "does not
+     * match" leaves a human unable to tell an attack from a renamed workflow. Best-effort — a bundle
+     * that cannot be read at all still has to produce something printable.
+     */
+    public static String signerOf(String bundleJson) {
+        try {
+            Bundle bundle = Bundle.from(new StringReader(bundleJson));
+            List<? extends Certificate> certificates = bundle.getCertPath().getCertificates();
+            if (certificates.isEmpty() || !(certificates.get(0) instanceof X509Certificate certificate)) {
+                return "unknown";
+            }
+            Collection<List<?>> names = certificate.getSubjectAlternativeNames();
+            if (names == null) {
+                return "unknown";
+            }
+            for (List<?> name : names) {
+                if (name.size() == 2 && name.get(1) instanceof String value) {
+                    return value;
+                }
+            }
+            return "unknown";
+        } catch (Exception e) {
+            return "unreadable bundle (" + e.getMessage() + ")";
         }
     }
 
