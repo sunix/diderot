@@ -51,9 +51,11 @@ chapter so each stays a readable size. Updated on request as the work progresses
    the nine lines it comes down to with the empty `VerificationOptions` that is the real gap, seven
    native builds to get sigstore-java into a GraalVM image — including three fixes of the wrong kind
    — and the way out I turned down when Claude proposed shelling out to cosign.
-8. [Where a signature lives in a registry](doc/making-of/08-storing-a-signature.md) — **draft, not
-   built yet**: publishing a signature is easy and finding it again is not, so why the link between a
-   skill and its signature can only run one way, what the OCI referrers API solves, discovering that
-   ghcr.io very probably does not implement it (measured against zot, since a bare 404 proves
-   nothing) and that the spec had already written the fallback.
-
+8. [Where a signature lives in a registry](doc/making-of/08-storing-a-signature.md) — publishing a
+   signature is easy and finding it again is not: why the link between a skill and its signature can
+   only run one way, what the OCI referrers API solves, discovering that ghcr.io very probably does
+   not implement it (measured against zot, since a bare 404 proves nothing) — and then the review
+   question that dissolved the problem, because all of it was the price of signing the container
+   instead of the content. What Helm, PyPI and Maven do instead, why the signature can then ride
+   inside the artifact, why signing needed a digest that is not git's SHA-1, and one signature that
+   covers the same skill under every tag.
