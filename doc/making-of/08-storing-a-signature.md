@@ -475,9 +475,9 @@ differently-signed **fails closed**. Optional to adopt, impossible to lose by ac
 ## What this chapter still owes
 
 **The check.** Storing a signature and finding it again is not verifying it: nothing yet calls
-`fetchSignature` from `update` or `install`, and `verifyDigest` is still the unpinned call from
-[PR #6](https://github.com/sunix/diderot/pull/6). That is the next step, and the two design answers
-above are what it implements — [#25](https://github.com/sunix/diderot/issues/25).
+`fetchSignature` from `update` or `install`, and the verification method is still the unpinned
+two-argument call from [PR #6](https://github.com/sunix/diderot/pull/6). That is the next step, and
+the two design answers above are what it implements — [#25](https://github.com/sunix/diderot/issues/25).
 
 **The ghcr.io measurement**, which this chapter spent three sections on and no longer needs. Whether
 ghcr implements the referrers API stopped being on anyone's path the moment the signature moved
