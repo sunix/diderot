@@ -51,9 +51,18 @@ chapter so each stays a readable size. Updated on request as the work progresses
    the nine lines it comes down to with the empty `VerificationOptions` that is the real gap, seven
    native builds to get sigstore-java into a GraalVM image — including three fixes of the wrong kind
    — and the way out I turned down when Claude proposed shelling out to cosign.
-8. [Where a signature lives in a registry](doc/making-of/08-storing-a-signature.md) — **draft, not
-   built yet**: publishing a signature is easy and finding it again is not, so why the link between a
-   skill and its signature can only run one way, what the OCI referrers API solves, discovering that
-   ghcr.io very probably does not implement it (measured against zot, since a bare 404 proves
-   nothing) and that the spec had already written the fallback.
-
+8. [Where a signature lives in a registry](doc/making-of/08-storing-a-signature.md) — publishing a
+   signature is easy and finding it again is not: why the link between a skill and its signature can
+   only run one way, what the OCI referrers API solves, discovering that ghcr.io very probably does
+   not implement it (measured against zot, since a bare 404 proves nothing) — and then the review
+   question that dissolved the problem, because all of it was the price of signing the container
+   instead of the content. What Helm, PyPI and Maven do instead, why the signature can then ride
+   inside the artifact, why signing needed a digest that is not git's SHA-1, and one signature that
+   covers the same skill under every tag.
+9. [Checking who signed it, and refusing when it is somebody else](doc/making-of/09-verifying-the-signer.md) —
+   a stored signature is not a checked one: pinning a signer as an identity *and* an issuer and why
+   both, an API with no unpinned overload so the old behaviour cannot be expressed, verifying the
+   content recomputed from disk rather than anything a registry said, failing closed with nothing
+   written, checking again at install because a lockfile arrives from teammates, what a consumer
+   actually needs at run time (neither Fulcio nor Rekor — measured in a network namespace), and five
+   ways to arrive at it, two of them refusals.

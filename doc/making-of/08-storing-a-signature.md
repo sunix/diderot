@@ -1,13 +1,15 @@
 # Where a signature lives in a registry
 
 *Part eight of [diderot's making-of](../../MAKING-OF.md): a registry has nowhere to put a signature,
-so how does one get stored — and found again from nothing but a digest?*
+so how does one get stored and found again from nothing but a digest — and what happens when someone
+asks why it has to be found at all.*
 
-> **Draft.** The work described here is not built. [Part seven](07-signing-foundations.md) got
-> sigstore compiling into a native binary; this chapter is the question that comes next, written
-> while the answer was being worked out rather than after. It gains its proof section when
-> `OrasClient` learns to store and fetch a bundle, and the measurement it is missing —
-> whether ghcr.io really lacks the referrers API — arrives with the first signed push.
+> The step after [part seven](07-signing-foundations.md), which got sigstore compiling into a native
+> binary and left the bundle with nowhere to go. This chapter builds the answer twice: once the way
+> the container ecosystem does it, then again after a review question showed that half of that work
+> was the cost of a decision rather than a requirement. Checking the signature — pinning an identity,
+> failing closed when it changes — is the step after this one, and it is
+> [part nine](09-verifying-the-signer.md).
 
 ## Publishing a signature is easy, finding it again is not
 
@@ -222,6 +224,238 @@ Following the spec is the more correct choice. Following cosign's *tag name* is 
 and buys less than it looks like it does: `cosign verify` needs cosign's payload layout too, not just
 its naming, so borrowing the tag alone would produce something that looks interoperable and is not.
 
+## The question that dissolved the problem
+
+At this point I had the whole machinery mapped, and a review question landed that I did not have a
+good answer to: **why are there two artifacts at all?** You sign a *content*, not a container — and
+if the skill later moves to another registry, or to a tarball on an FTP server, the same signature
+ought to still mean something.
+
+Following that through, none of the machinery above is something OCI imposes. It is the consequence
+of one choice made three sections earlier: **we signed the manifest digest.** A signature over a
+manifest cannot be stored inside that manifest, because storing it would change the digest it
+attests. So it has to live elsewhere; living elsewhere means it has to be found; being found is the
+referrers API, its 404, the tag schema, and an index clients maintain by hand with the race the spec
+warns about. This chapter up to here is the price of that one decision.
+
+Sign the **content** instead and the circularity is gone — the bundle can ride inside the artifact,
+because what it attests is not the document it is stored in.
+
+### What everyone else does, which I should have checked first
+
+[Helm](https://helm.sh/docs/topics/provenance/), whose homework this project has been copying since
+part one, signs content: its provenance file carries `Chart.yaml`, **the SHA-256 of the `.tgz`** and
+a file → SHA-256 map, signed with OpenPGP. In an HTTP repository it sits beside the chart as
+`<chart>.tgz.prov`; pushed to a registry it becomes **another layer in the same OCI manifest**
+(`application/vnd.cncf.helm.chart.provenance.v1.prov`), which `helm pull --verify` locates by media
+type.
+
+[PyPI's attestations](https://peps.python.org/pep-0740/) sign the distribution's filename and
+SHA-256 in an in-toto statement, served beside the file by the index. Maven Central publishes a
+detached `.asc` per artifact. RPM puts the signature in the package header, JARs in `META-INF`. The
+pattern is consistent: **package managers sign content and keep the signature with it.**
+
+The outlier is the container world — cosign signing an image's manifest digest, stored as a separate
+artifact — and its reasons are real, but they are *its* reasons: the signed object is the registry
+object, tags are mutable, an image is usually an index over per-architecture manifests, and third
+parties attest **after** publication (a scanner, a security team, an SBOM added later). That last
+one is precisely what `subject` and the referrers API exist for, and it is what this design gives
+up. diderot signs what it publishes, when it publishes it, and needs nobody to attach anything
+afterwards.
+
+A skill is a package, not an image. It should be signed like one.
+
+## What gets signed: a new digest, because the one we had is SHA-1
+
+Signing content means naming the content, and diderot already has a name for it: `tree:<sha>`, the
+git tree hash from part one that `install` and `status` compare against. Reaching for it was the
+obvious move, and it is the wrong one, for a reason worth spelling out because it reaches further
+than signing.
+
+SHA-1's **collision resistance** is broken — two different inputs with the same hash were produced in
+2017, and by 2020 a *chosen-prefix* collision, where both sides start from content the attacker
+picked, cost around $45,000 of rented GPU time and less since. What is **not** broken is preimage
+resistance: given a hash, nobody can produce content matching it. That distinction decides how much
+this matters:
+
+- The leaked-token attack from [part seven](07-signing-foundations.md) is untouched. Passing it
+  would mean matching the digest of a skill *already published*, which is a second preimage, and
+  that remains out of reach.
+- What a collision buys is stealth, and only for a **publisher**: craft two directories that hash
+  the same, have the harmless one signed and audited, serve the other. Identical `tree:`, so
+  `status` reports no drift and the signature still verifies. A skill directory can hold images or
+  binaries, which is where collision padding sits without looking strange.
+
+And a detail specific to this project: git itself stopped hashing with bare SHA-1 in 2.13 — it uses
+sha1dc, which detects the known attack patterns and refuses the object.
+[`GitTreeHasher`](../../src/main/java/org/sunix/diderot/core/GitTreeHasher.java) reimplements git's
+hashing in pure Java and has no such detection, so it would accept a pair real git would reject.
+
+A signature should not inherit any of that, so signing gets its own identity —
+[`ContentDigest`](../../src/main/java/org/sunix/diderot/core/ContentDigest.java), a sha256 over a
+flat sorted listing. The walk is deliberately the tree hasher's walk, so both digests always describe
+the same set of files:
+
+```java
+private static void collect(Path dir, String prefix, List<String> lines) throws IOException {
+    try (var children = Files.list(dir)) {
+        for (Path child : children.toList()) {
+            String name = child.getFileName().toString();
+            if (name.equals(".git")) {
+                continue;
+            }
+            String path = prefix + name;
+            if (Files.isSymbolicLink(child)) {
+                byte[] target = Files.readSymbolicLink(child).toString().getBytes(StandardCharsets.UTF_8);
+                lines.add(line("120000", sha256(target), path));
+            } else if (Files.isDirectory(child)) {
+                collect(child, path + "/", lines);
+            } else {
+                String mode = Files.isExecutable(child) ? "100755" : "100644";
+                lines.add(line(mode, sha256(Files.readAllBytes(child)), path));
+            }
+        }
+    }
+}
+```
+
+`tree:` keeps its job — drift detection, and the lock's content identity — and the new digest exists
+to be signed. Two identities is one more than ideal; migrating the lock to sha256 is
+[#43](https://github.com/sunix/diderot/issues/43).
+
+### Proof: an oracle rather than a fixture
+
+A hash test that asserts a constant proves only that the code still does what it did yesterday. Part
+one tested the tree hasher against **real git**; no external tool computes this digest, so the oracle
+is an independent reimplementation in shell — different language, same specification:
+
+```java
+@Test
+void matchesAnIndependentShellImplementation() throws Exception {
+    Path skill = tmp.resolve("skill");
+    Files.createDirectories(skill.resolve("templates"));
+    Files.writeString(skill.resolve("SKILL.md"), "---\nname: making-of\n---\nInstructions.\n");
+    Files.writeString(skill.resolve("templates/MAKING-OF.md"), "# template\n");
+    Files.writeString(skill.resolve("README.md"), "read me\n");
+
+    // sha256 of: the format line, then "<mode> <sha256> <path>\n" per file, sorted by path.
+    String oracle = Git.run(skill, "sh", "-c",
+            "{ printf 'diderot-content-v1\\n'; "
+                    + "find . -type f | sed 's|^\\./||' | LC_ALL=C sort | "
+                    + "while read -r f; do printf '100644 %s %s\\n' "
+                    + "\"$(sha256sum \"$f\" | cut -d' ' -f1)\" \"$f\"; done; } | "
+                    + "sha256sum | cut -d' ' -f1").trim();
+
+    assertEquals("sha256:" + oracle, ContentDigest.sha256Of(skill));
+}
+```
+
+Five more cases pin down what "different content" means: one byte, the executable bit, a file moved
+between directories, a symlink that starts pointing elsewhere, and `.git` staying invisible so a
+checkout and an export sign the same.
+
+## The code, after
+
+The write side is now an argument to `push`:
+
+```java
+public String push(Path skillDir, String reference, String bundleJson) throws IOException {
+    Map<String, String> annotations = new LinkedHashMap<>();
+    annotations.put(TREE_DIGEST_ANNOTATION, "tree:" + GitTreeHasher.treeSha(skillDir));
+    if (bundleJson != null) {
+        annotations.put(SIGNATURE_ANNOTATION, Base64.getEncoder()
+                .encodeToString(bundleJson.getBytes(StandardCharsets.UTF_8)));
+    }
+    Manifest manifest = registryFor(reference).pushArtifact(
+            ContainerRef.parse(reference),
+            ArtifactType.from(SKILL_ARTIFACT_TYPE),
+            Annotations.ofManifest(annotations),
+            land.oras.LocalPath.of(skillDir));
+    return manifest.getDescriptor().getDigest();
+}
+```
+
+The read side is one manifest fetch and a base64 decode:
+
+```java
+public Optional<String> fetchSignature(String repository, String digest) {
+    Manifest manifest = registryFor(repository)
+            .getManifest(ContainerRef.parse(repository).withDigest(digest));
+    Map<String, String> annotations = manifest.getAnnotations();
+    if (annotations == null) {
+        return Optional.empty();
+    }
+    return Optional.ofNullable(annotations.get(SIGNATURE_ANNOTATION))
+            .map(encoded -> new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8));
+}
+```
+
+That is the whole transport. Deleted along the way: `pushSignature`, the referrers-tag index with its
+read-back-then-write, the exception used as a signal, the artifactType constants — and
+`SignatureTransportTest`, whose two registries proved something that is no longer done. What survives
+is this chapter's first half, which is the half worth keeping: the measurement stands, and
+`sha256-<hex>` is still the right answer to *"how do you attach something to a manifest you cannot
+change"*. It simply stopped being our question.
+
+One deliberate difference from Helm: it uses a layer, this uses a manifest annotation. The reason is
+`cachedPull`, which extracts every layer — a provenance layer would land inside the skill directory
+and change the very content digest it attests. An annotation stays outside the content, and 7.6 KB of
+base64 is nothing against a registry's manifest limit.
+
+## Proof: one signature, two tags
+
+The question that started the rework has a test of its own. Sign once, publish the same content
+twice — as a release and as a floating tag — and resolve it through both:
+
+```java
+@Test
+void oneSignatureCoversTheSameContentUnderEveryTag() throws Exception {
+    Path skillDir = skillDirectory("two-tags");
+    String repository = registryHostPort + "/skills/two-tags";
+    OrasClient oras = new OrasClient(tmp.resolve("cache-two-tags"));
+
+    // Signed once, over the content — then published twice, as a release and as a floating tag.
+    String bundle = signing.signDigest(ContentDigest.sha256Of(skillDir));
+    String pinnedDigest = oras.push(skillDir, repository + ":1.0.0", bundle);
+    Thread.sleep(1100); // the created annotation the SDK stamps has second granularity
+    String floatingDigest = oras.push(skillDir, repository + ":latest", bundle);
+
+    assertNotEquals(pinnedDigest, floatingDigest,
+            "identical content still produces two manifests, which is issue #21 — the SDK "
+                    + "stamps a fresh created timestamp on every push");
+    assertEquals(Optional.of(bundle), oras.fetchSignature(repository, pinnedDigest));
+    assertEquals(Optional.of(bundle), oras.fetchSignature(repository, floatingDigest),
+            "the same signature came back through the other tag: what it attests is the "
+                    + "content, which both manifests carry");
+}
+```
+
+The first assertion is [#21](https://github.com/sunix/diderot/issues/21) reproduced on purpose,
+sleep included: the SDK stamps a `created` annotation with second granularity, so two pushes in the
+same second are byte-identical and two a second apart are not. Under the old design those two
+manifest digests meant two signatures and two signature artifacts for identical bytes. Here the same
+bundle comes back through either tag, because what it attests is the content that both manifests
+carry — and [part nine](09-verifying-the-signer.md) is where that bundle gets checked rather than
+merely found.
+
+## What `push --sign` prints now
+
+Signing moved ahead of the push, because there is nothing left to wait for: the content is known
+before the registry is involved.
+
+```java
+String bundle = null;
+if (sign) {
+    String contentDigest = ContentDigest.sha256Of(dir);
+    bundle = Signing.production().signDigest(contentDigest);
+    out.printf("signed %s (%d byte sigstore bundle)%n", contentDigest, bundle.length());
+}
+String digest = oras.push(dir, ref, bundle);
+out.printf("pushed %s -> %s@%s%n", skillDir, ref, digest);
+```
+
+One artifact, one digest, and the bundle inside it.
+
 ## Two answers the lookup problem forced, before any feature code
 
 Two questions from [#25](https://github.com/sunix/diderot/issues/25) got their design answers while
@@ -240,11 +474,18 @@ differently-signed **fails closed**. Optional to adopt, impossible to lose by ac
 
 ## What this chapter still owes
 
-A proof section. Everything above is design and measurement; none of it is running code yet. When
-`OrasClient` gains `pushSignature` and `fetchSignature`, this chapter gets what the others have —
-the code walked through, the tests that hold it, and a real signature pushed to a real registry and
-fetched back.
+**The check.** Storing a signature and finding it again is not verifying it: nothing yet calls
+`fetchSignature` from `update` or `install`, and `verifyDigest` is still the unpinned call from
+[PR #6](https://github.com/sunix/diderot/pull/6). That is the next step, and the two design answers
+above are what it implements — [#25](https://github.com/sunix/diderot/issues/25).
 
-Two things will be settled by that work rather than argued here. Whether ghcr.io implements the
-referrers API, which a signed push answers for free through the `OCI-Subject` response header. And
-which transport diderot writes: the spec's referrers index, cosign's tag, or both.
+**The ghcr.io measurement**, which this chapter spent three sections on and no longer needs. Whether
+ghcr implements the referrers API stopped being on anyone's path the moment the signature moved
+inside the artifact: nothing diderot does asks that endpoint anything. The measurement stays
+unfinished and stays interesting — it would settle whether the largest registry in the ecosystem is
+OCI 1.1-conformant, and one push of a manifest carrying `subject` answers it — but it is now
+curiosity rather than a blocker, which is a better place for it.
+
+**Two content identities**, `tree:` for drift and sha256 for signatures, where one would do.
+[#43](https://github.com/sunix/diderot/issues/43) is the migration, and it is not urgent precisely
+because the signature already binds to the stronger of the two.

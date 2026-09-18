@@ -13,6 +13,7 @@ import org.sunix.diderot.core.LockFile.LockedSkill;
 import org.sunix.diderot.core.Manifest.ManifestSkill;
 import org.sunix.diderot.git.GitCli;
 import org.sunix.diderot.oci.OrasClient;
+import org.sunix.diderot.oci.Signing;
 
 /**
  * The update/install/status engine, operating on a project root containing diderot.yaml.
@@ -23,12 +24,19 @@ public class Workspace {
     private final Path root;
     private final GitCli git;
     private final OrasClient oci;
+    private final Signing signing;
     private final PrintWriter out;
 
     public Workspace(Path root, GitCli git, OrasClient oci, PrintWriter out) {
+        this(root, git, oci, Signing.production(), out);
+    }
+
+    /** Tests substitute a {@link Signing} bound to sigstore's staging instance. */
+    public Workspace(Path root, GitCli git, OrasClient oci, Signing signing, PrintWriter out) {
         this.root = root;
         this.git = git;
         this.oci = oci;
+        this.signing = signing;
         this.out = out;
     }
 
@@ -54,8 +62,9 @@ public class Workspace {
             lock.skills.add(locked);
             // With ranges in play, the repository alone no longer says what was chosen.
             String reference = locked.tag == null ? ref.url() : ref.url() + ":" + locked.tag;
-            out.printf("locked %-20s %s@%s (%s)%n",
-                    skill.name, reference, shortSha(locked.resolved), locked.digest);
+            out.printf("locked %-20s %s@%s (%s%s)%n",
+                    skill.name, reference, shortSha(locked.resolved), locked.digest,
+                    locked.signer == null ? "" : ", signer ok");
         }
         lock.skills.sort(Comparator.comparing(s -> s.name));
         Yaml.write(lockPath(), lock);
@@ -66,9 +75,17 @@ public class Workspace {
     /** Install exactly what the lockfile pins, verifying content digests after extraction. */
     public void install(List<String> targetOverrides) throws IOException {
         LockFile lock = readLock();
+        Manifest manifest = readManifest();
         List<TargetLayout> targets = resolveTargets(targetOverrides);
         for (LockedSkill skill : lock.skills) {
             SourceRef ref = SourceRef.parse(skill.source);
+            // A lockfile can arrive from a teammate, so install re-runs the check rather than
+            // trusting that whoever wrote the lock ran it. The pull is cached, so asking for the
+            // content here costs nothing the loop below was not going to pay anyway.
+            if (ref.kind() == SourceRef.Kind.OCI) {
+                verifySigner(skill.name, pinnedSigner(manifest, skill.name), ref.url(), skill.resolved,
+                        oci.cachedPull(ref.url(), skill.resolved));
+            }
             for (TargetLayout target : targets) {
                 Path dest = target.skillsDir(root).resolve(skill.name);
                 deleteRecursively(dest);
@@ -126,7 +143,56 @@ public class Workspace {
         locked.resolved = digest;
         locked.tag = tag;
         locked.digest = "tree:" + GitTreeHasher.treeSha(content);
+        locked.signer = verifySigner(skill.name, skill.signer, ref.url(), digest, content);
         return locked;
+    }
+
+    /** The signer pinned for {@code name} in the manifest, or null when the skill pins none. */
+    private static Signer pinnedSigner(Manifest manifest, String name) {
+        return manifest.skills.stream()
+                .filter(s -> name.equals(s.name))
+                .map(s -> s.signer)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Checks the signature of {@code digest} against the signer the manifest pins, and returns what
+     * to record in the lock. No pinned signer means no check and nothing recorded: unsigned skills
+     * stay usable, which is the only way this can be adopted gradually.
+     *
+     * <p>Everything that can go wrong here fails closed, because the alternative — carrying on with
+     * a warning — is indistinguishable from the attack it is supposed to stop. A caller that throws
+     * before the lockfile is written leaves the project on the version it already had.
+     *
+     * <p>What gets verified is {@code content}, recomputed here rather than taken from anywhere:
+     * the signature covers the skill's bytes, so the check binds to what is about to be installed
+     * and not to a document the registry served.
+     */
+    private Signer verifySigner(String name, Signer expected, String repository, String digest, Path content)
+            throws IOException {
+        if (expected == null) {
+            return null;
+        }
+        if (expected.identity == null || expected.issuer == null) {
+            throw new IOException("Skill '" + name + "': signer needs both an identity and an issuer");
+        }
+        String bundle = oci.fetchSignature(repository, digest)
+                .orElseThrow(() -> new IOException("Skill '" + name + "': " + repository + "@" + digest
+                        + " carries no signature, but diderot.yaml pins a signer.\n"
+                        + "       expected  " + expected.identity + "\n"
+                        + "       Nothing was written."));
+        try {
+            signing.verifyDigest(ContentDigest.sha256Of(content), bundle, expected.identity, expected.issuer);
+        } catch (IOException e) {
+            throw new IOException("Skill '" + name + "': " + repository + "@" + digest
+                    + " is signed, but not by the expected signer.\n"
+                    + "       expected  " + expected.identity + "\n"
+                    + "       found     " + Signing.signerOf(bundle) + "\n"
+                    + "       Nothing was written.", e);
+        }
+        return new Signer(expected.identity, expected.issuer);
     }
 
     /**
