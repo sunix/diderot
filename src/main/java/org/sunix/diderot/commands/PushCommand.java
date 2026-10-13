@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
+import org.sunix.diderot.core.ContentDigest;
 import org.sunix.diderot.oci.OrasClient;
 import org.sunix.diderot.oci.Signing;
 
@@ -39,16 +40,18 @@ public class PushCommand implements Callable<Integer> {
                 throw new IllegalArgumentException("Not a skill directory (no SKILL.md): " + skillDir);
             }
             String ref = reference.startsWith("oci://") ? reference.substring("oci://".length()) : reference;
-            String digest = new OrasClient(OrasClient.defaultCacheRoot())
-                    .push(skillDir.toAbsolutePath().normalize(), ref);
-            out.printf("pushed %s -> %s@%s%n", skillDir, ref, digest);
+            Path dir = skillDir.toAbsolutePath().normalize();
+            OrasClient oras = new OrasClient(OrasClient.defaultCacheRoot());
+            // Signing comes first when asked for, because the bundle travels inside the artifact:
+            // it is the content that gets signed, so there is nothing to wait for the push to learn.
+            String bundle = null;
             if (sign) {
-                // Signing only, for now: the bundle has nowhere to go until the transport lands,
-                // because ghcr.io does not implement the Referrers API the parked branch used.
-                String bundle = Signing.production().signDigest(digest);
-                out.printf("signed %s (%d byte sigstore bundle, not yet stored)%n",
-                        digest, bundle.length());
+                String contentDigest = ContentDigest.sha256Of(dir);
+                bundle = Signing.production().signDigest(contentDigest);
+                out.printf("signed %s (%d byte sigstore bundle)%n", contentDigest, bundle.length());
             }
+            String digest = oras.push(dir, ref, bundle);
+            out.printf("pushed %s -> %s@%s%n", skillDir, ref, digest);
             return 0;
         } catch (Exception e) {
             spec.commandLine().getErr().println("error: " + e.getMessage());

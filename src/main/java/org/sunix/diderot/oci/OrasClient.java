@@ -1,11 +1,15 @@
 package org.sunix.diderot.oci;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.sunix.diderot.core.GitTreeHasher;
 
@@ -29,6 +33,12 @@ public class OrasClient {
 
     /** Manifest annotation carrying the git-tree digest of the pushed directory. */
     public static final String TREE_DIGEST_ANNOTATION = "org.sunix.diderot.tree-digest";
+
+    /**
+     * Manifest annotation carrying the sigstore bundle, base64-encoded. The signature travels with
+     * the artifact rather than beside it — see {@link #push(Path, String, String)}.
+     */
+    public static final String SIGNATURE_ANNOTATION = "org.sunix.diderot.signature";
 
     private final Path cacheRoot;
 
@@ -83,13 +93,48 @@ public class OrasClient {
      * diderot artifactType and the git-tree digest of the directory for provenance.
      */
     public String push(Path skillDir, String reference) throws IOException {
-        String treeDigest = "tree:" + GitTreeHasher.treeSha(skillDir);
+        return push(skillDir, reference, null);
+    }
+
+    /**
+     * Pushes a skill directory, carrying {@code bundleJson} with it when one is given.
+     *
+     * <p>The signature rides <em>inside</em> the artifact, as a manifest annotation, which is only
+     * possible because what it attests is the content rather than this manifest — a signature over
+     * the manifest digest would change the digest it attests and has to live somewhere else, which
+     * is the whole reason the OCI referrers machinery exists. Helm does the same thing with its
+     * provenance file, as a layer; an annotation is used here because
+     * {@link #cachedPull(String, String)} extracts every layer, and a bundle landing in the skill
+     * directory would change the content digest it is attesting.
+     */
+    public String push(Path skillDir, String reference, String bundleJson) throws IOException {
+        Map<String, String> annotations = new LinkedHashMap<>();
+        annotations.put(TREE_DIGEST_ANNOTATION, "tree:" + GitTreeHasher.treeSha(skillDir));
+        if (bundleJson != null) {
+            annotations.put(SIGNATURE_ANNOTATION, Base64.getEncoder()
+                    .encodeToString(bundleJson.getBytes(StandardCharsets.UTF_8)));
+        }
         Manifest manifest = registryFor(reference).pushArtifact(
                 ContainerRef.parse(reference),
                 ArtifactType.from(SKILL_ARTIFACT_TYPE),
-                Annotations.ofManifest(Map.of(TREE_DIGEST_ANNOTATION, treeDigest)),
+                Annotations.ofManifest(annotations),
                 land.oras.LocalPath.of(skillDir));
         return manifest.getDescriptor().getDigest();
+    }
+
+    /**
+     * The signature carried by the artifact at {@code digest}, or empty when it carries none.
+     * One manifest fetch, no discovery: the bundle is where the artifact is.
+     */
+    public Optional<String> fetchSignature(String repository, String digest) {
+        Manifest manifest = registryFor(repository)
+                .getManifest(ContainerRef.parse(repository).withDigest(digest));
+        Map<String, String> annotations = manifest.getAnnotations();
+        if (annotations == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(annotations.get(SIGNATURE_ANNOTATION))
+                .map(encoded -> new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8));
     }
 
     /**

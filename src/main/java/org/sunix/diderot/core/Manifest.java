@@ -30,5 +30,11 @@ public class Manifest {
          * and to the {@code latest} tag for a registry.
          */
         public String version = "HEAD";
+        /**
+         * Optional: the signer this skill's signature must come from. When present, every resolution
+         * of this skill verifies a sigstore signature against it and refuses to write anything when
+         * the check does not hold. Absent, the skill is treated as unsigned and nothing is checked.
+         */
+        public Signer signer;
     }
 }
