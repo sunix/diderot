@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/sunix/diderot/compare/v0.4.0...v0.4.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **native:** ship sigstore's trust roots inside the binary ([#47](https://github.com/sunix/diderot/issues/47)) ([1d348de](https://github.com/sunix/diderot/commit/1d348dec10a49baac03967b7330fb8f51d3b432f))
+
 ## [0.4.0](https://github.com/sunix/diderot/compare/v0.3.0...v0.4.0) (2026-10-24)
 
 
