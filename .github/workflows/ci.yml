@@ -49,3 +49,26 @@ jobs:
           binary="$(ls target/diderot-*-runner)"
           "$binary" --version
           "$binary" --help
+
+      # `--version` proves the image links; it does not prove sigstore works inside it. The first
+      # real signed publish failed on a TUF root that native-image had left out of the binary,
+      # because resources are not reachable by analysis. This reaches the same code: with no OIDC
+      # token in the environment the signer cannot get an identity, but it has to get that far —
+      # an error about a missing resource means the trust root did not make it into the image.
+      - name: Signing has to get as far as asking for an identity
+        run: |
+          binary="$(ls target/diderot-*-runner)"
+          mkdir -p /tmp/smoke-skill
+          printf -- '---\nname: smoke\n---\nInstructions.\n' > /tmp/smoke-skill/SKILL.md
+          set +e
+          out="$(timeout 180 "$binary" push --sign /tmp/smoke-skill localhost:5000/skills/smoke:v1 2>&1)"
+          set -e
+          echo "$out"
+          case "$out" in
+            *"not found"*)
+              echo "::error::a resource is missing from the native image: $out"; exit 1 ;;
+            *oidc*|*Oidc*|*OIDC*|*identity*)
+              echo "sigstore started up inside the native image and stopped at the identity, as expected" ;;
+            *)
+              echo "::error::unexpected failure before the identity step: $out"; exit 1 ;;
+          esac

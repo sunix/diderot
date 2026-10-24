@@ -26,7 +26,8 @@ public class PushCommand implements Callable<Integer> {
     @Parameters(index = "1", description = "Destination OCI reference (oci://registry/repository:tag).")
     String reference;
 
-    @Option(names = "--sign", description = "Sign the pushed manifest digest with sigstore keyless signing.")
+    @Option(names = "--sign", description = "Sign the skill's content with sigstore keyless signing, "
+            + "and carry the signature in the artifact.")
     boolean sign;
 
     @Spec
