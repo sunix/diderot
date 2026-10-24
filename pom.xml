@@ -45,6 +45,15 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>
         </dependency>
+        <!--
+            Not for authentication: this extension carries Quarkus's BouncyCastle support, which is
+            what reads `quarkus.security.security-providers=BC` and registers the provider *and*
+            the algorithm classes it loads by name in the native image.
+        -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-jackson</artifactId>
