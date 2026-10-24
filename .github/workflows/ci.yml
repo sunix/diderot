@@ -49,3 +49,40 @@ jobs:
           binary="$(ls target/diderot-*-runner)"
           "$binary" --version
           "$binary" --help
+
+      # `--version` proves the image links; it does not prove sigstore works inside it. The first
+      # real signed publish failed on a TUF root native-image had left out of the binary, then on
+      # protobuf accessors resolved by reflection, then on a security provider registered at run
+      # time — three things analysis cannot see, none of which the JVM build notices.
+      #
+      # This runs the real signing path. It is expected to fail, because the runner has no identity
+      # to sign with; what matters is *how*. An error about a missing resource, an absent provider
+      # or a class that cannot be found means the image is incomplete. Anything else means sigstore
+      # got up and running inside it and stopped on credentials, which is all CI can ask for.
+      - name: Signing has to fail on credentials, not on a hollow image
+        run: |
+          binary="$(ls target/diderot-*-runner)"
+          mkdir -p /tmp/smoke-skill
+          printf -- '---\nname: smoke\n---\nInstructions.\n' > /tmp/smoke-skill/SKILL.md
+          set +e
+          out="$(timeout 180 "$binary" push --sign /tmp/smoke-skill localhost:5000/skills/smoke:v1 2>&1)"
+          set -e
+          echo "$out"
+          for broken in \
+            "not found" \
+            "no such provider" \
+            "cannot be found" \
+            "Could not parse trusted root" \
+            "ClassNotFoundException" \
+            "NoClassDefFoundError" \
+            "NoSuchMethodException" \
+            "InstantiationException" \
+            "UnsatisfiedLinkError"
+          do
+            case "$out" in
+              *"$broken"*)
+                echo "::error::the native image is missing something: matched '$broken' in: $out"
+                exit 1 ;;
+            esac
+          done
+          echo "sigstore ran inside the native image and stopped on credentials, as expected"
