@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/sunix/diderot/compare/v0.3.0...v0.4.0) (2026-10-24)
+
+
+### Features
+
+* sign the content, carry the signature with it, and verify who signed ([#42](https://github.com/sunix/diderot/issues/42)) ([2373076](https://github.com/sunix/diderot/commit/2373076416cc4c6a8555d4c3cf75717ca3d60831))
+* signing, step one — the sigstore boundary and the native-image question ([#38](https://github.com/sunix/diderot/issues/38)) ([da445b8](https://github.com/sunix/diderot/commit/da445b8d8563362d8792be33014bd476a98cccd3))
+
 ## [0.3.0](https://github.com/sunix/diderot/compare/v0.2.0...v0.3.0) (2026-08-27)
 
 
