@@ -60,7 +60,8 @@ jobs:
       # actually signed — this workflow, on this ref — and getting "signer ok" rather than a refusal.
       - name: A consumer verifies it, with the signer pinned
         run: |
-          binary="$(ls target/diderot-*-runner)"
+          # absolute: the next line leaves the checkout behind
+          binary="$(realpath target/diderot-*-runner)"
           mkdir -p /tmp/e2e-project && cd /tmp/e2e-project
           cat > diderot.yaml <<YAML
           skills:
@@ -81,7 +82,7 @@ jobs:
 
       - name: And a wrong pin is refused
         run: |
-          binary="$(ls target/diderot-*-runner)"
+          binary="$(realpath target/diderot-*-runner)"
           cd /tmp/e2e-project
           sed -i 's|identity: .*|identity: https://github.com/attacker/tools/.github/workflows/release.yml@refs/heads/main|' diderot.yaml
           rm -f diderot.lock
