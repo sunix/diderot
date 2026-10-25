@@ -25,7 +25,10 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
  *
  * <p>The gRPC entries are the same problem through a third door: a client finds its transport,
  * name resolver and load balancer through ServiceLoader, so the service files have to ship as
- * resources and the classes they name have to be instantiable.
+ * resources and the classes they name have to be instantiable. <em>Every</em> class they name —
+ * shipping the file and registering only the providers this code needs is worse than not shipping
+ * it at all, because ServiceLoader then reads a name it cannot load and the binary dies on
+ * startup with a ServiceConfigurationError, before it can even print its version.
  *
  * <p>Regenerate the list with:
  *
@@ -35,6 +38,12 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
  * </pre>
  */
 @RegisterForReflection(classNames = {
+        "io.grpc.netty.UdsNettyChannelProvider",
+        "io.grpc.netty.UdsNameResolverProvider",
+        "io.grpc.netty.NettyServerProvider",
+        "io.grpc.util.SecretRoundRobinLoadBalancerProvider$Provider",
+        "io.grpc.util.OutlierDetectionLoadBalancerProvider",
+        "io.grpc.util.RandomSubsettingLoadBalancerProvider",
         "io.grpc.netty.NettyChannelProvider",
         "io.grpc.internal.DnsNameResolverProvider",
         "io.grpc.internal.PickFirstLoadBalancerProvider",
