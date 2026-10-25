@@ -17,6 +17,12 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
  * that has not been told about them fails with an empty message — the first signed publish said
  * only "Could not build a sigstore signer:" and nothing more.
  *
+ * <p>And one layer up again: the identity token is a JWT, which google-api-client parses by
+ * instantiating its own classes through a no-argument constructor — "unable to create new instance
+ * of class JsonWebSignature$Header because it has no accessible default constructor", a message
+ * that only appears once there is a real token to parse, which is to say only in CI with
+ * `id-token: write`.
+ *
  * <p>Regenerate the list with:
  *
  * <pre>
@@ -25,6 +31,13 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
  * </pre>
  */
 @RegisterForReflection(classNames = {
+        "com.google.api.client.json.GenericJson",
+        "com.google.api.client.json.webtoken.JsonWebSignature",
+        "com.google.api.client.json.webtoken.JsonWebSignature$Header",
+        "com.google.api.client.json.webtoken.JsonWebSignature$Parser",
+        "com.google.api.client.json.webtoken.JsonWebToken",
+        "com.google.api.client.json.webtoken.JsonWebToken$Header",
+        "com.google.api.client.json.webtoken.JsonWebToken$Payload",
         "dev.sigstore.fulcio.client.CertificateRequest",
         "dev.sigstore.fulcio.client.FulcioCertificateMatcher",
         "dev.sigstore.fulcio.client.FulcioClient",
