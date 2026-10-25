@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/sunix/diderot/compare/v0.4.1...v0.4.2) (2026-10-25)
+
+
+### Bug Fixes
+
+* **native:** register the sigstore clients, and sign for real on a branch ([#50](https://github.com/sunix/diderot/issues/50)) ([6fd5fc0](https://github.com/sunix/diderot/commit/6fd5fc0c1840af6c483f240acad17c833f43b6b1))
+
 ## [0.4.1](https://github.com/sunix/diderot/compare/v0.4.0...v0.4.1) (2026-10-24)
 
 
