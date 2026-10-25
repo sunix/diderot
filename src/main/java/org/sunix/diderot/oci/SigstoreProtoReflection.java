@@ -23,6 +23,10 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
  * that only appears once there is a real token to parse, which is to say only in CI with
  * `id-token: write`.
  *
+ * <p>The gRPC entries are the same problem through a third door: a client finds its transport,
+ * name resolver and load balancer through ServiceLoader, so the service files have to ship as
+ * resources and the classes they name have to be instantiable.
+ *
  * <p>Regenerate the list with:
  *
  * <pre>
@@ -31,6 +35,9 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
  * </pre>
  */
 @RegisterForReflection(classNames = {
+        "io.grpc.netty.NettyChannelProvider",
+        "io.grpc.internal.DnsNameResolverProvider",
+        "io.grpc.internal.PickFirstLoadBalancerProvider",
         "com.google.api.client.json.GenericJson",
         "com.google.api.client.json.webtoken.JsonWebSignature",
         "com.google.api.client.json.webtoken.JsonWebSignature$Header",
