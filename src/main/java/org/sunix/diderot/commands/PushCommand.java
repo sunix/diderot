@@ -55,8 +55,31 @@ public class PushCommand implements Callable<Integer> {
             out.printf("pushed %s -> %s@%s%n", skillDir, ref, digest);
             return 0;
         } catch (Exception e) {
-            spec.commandLine().getErr().println("error: " + e.getMessage());
+            spec.commandLine().getErr().println("error: " + describe(e));
             return 1;
         }
+    }
+
+    /**
+     * The whole chain, type included. A library that throws with a null or empty message leaves
+     * {@code getMessage()} printing nothing at all — the first real signed publish failed with
+     * "error: Could not build a sigstore signer:" and not one word more, which is a diagnostic
+     * dead end for whoever has to fix it.
+     */
+    private static String describe(Throwable error) {
+        StringBuilder chain = new StringBuilder();
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (!chain.isEmpty()) {
+                chain.append("\n  caused by ");
+            }
+            String message = t.getMessage();
+            chain.append(message == null || message.isBlank()
+                    ? t.getClass().getName()
+                    : t.getClass().getSimpleName() + ": " + message);
+            if (t == t.getCause()) {
+                break;
+            }
+        }
+        return chain.toString();
     }
 }

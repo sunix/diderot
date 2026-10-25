@@ -1,0 +1,98 @@
+name: Signing end to end
+
+# Signing only breaks where it is whole: a native binary *plus* a real OIDC identity. CI's
+# native-smoke has the binary and no identity, ai-skills' publish workflow has both but installs
+# released binaries — so every hypothesis about native signing used to cost a release, three merges
+# and a quarter of an hour. This runs the same path on a branch.
+#
+# Nothing is published: the target is a registry:2 service on localhost. What *is* real is the
+# signature — a certificate from the public Fulcio and an entry in the public Rekor log, signed as
+# this workflow. That is the point, and it is why this runs on request rather than on every push.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'fix/native-**'
+      - 'feat/signing-**'
+
+permissions:
+  contents: read
+  # The whole reason this file exists: without it the runner has no identity to sign with.
+  id-token: write
+
+jobs:
+  sign-for-real:
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: graalvm-community
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+
+      - name: A skill to sign
+        run: |
+          mkdir -p /tmp/e2e-skill
+          printf -- '---\nname: e2e\n---\nInstructions.\n' > /tmp/e2e-skill/SKILL.md
+
+      # The jar first: it isolates the variable. If this passes and the native binary does not, the
+      # difference is the image, not the production sigstore flow.
+      - name: Sign and push with the jar
+        run: |
+          ./mvnw -B package -DskipTests
+          java -jar target/quarkus-app/quarkus-run.jar \
+            push --sign /tmp/e2e-skill localhost:5000/skills/e2e-jar:v1
+
+      - name: Sign and push with the native binary
+        run: |
+          ./mvnw -B package -DskipTests -Dnative
+          binary="$(ls target/diderot-*-runner)"
+          "$binary" push --sign /tmp/e2e-skill localhost:5000/skills/e2e-native:v1
+
+      # Signing is half the claim. This is the other half: a consumer pinning the identity that
+      # actually signed — this workflow, on this ref — and getting "signer ok" rather than a refusal.
+      - name: A consumer verifies it, with the signer pinned
+        run: |
+          # absolute: the next line leaves the checkout behind
+          binary="$(realpath target/diderot-*-runner)"
+          mkdir -p /tmp/e2e-project && cd /tmp/e2e-project
+          cat > diderot.yaml <<YAML
+          skills:
+            - name: e2e
+              source: oci://localhost:5000/skills/e2e-native
+              version: v1
+              signer:
+                identity: https://github.com/${{ github.repository }}/.github/workflows/signing-e2e.yml@${{ github.ref }}
+                issuer: https://token.actions.githubusercontent.com
+          targets: [claude]
+          YAML
+          out="$("$binary" update 2>&1)"
+          echo "$out"
+          case "$out" in
+            *"signer ok"*) echo "verified against the identity that signed it" ;;
+            *) echo "::error::update did not verify the signature: $out"; exit 1 ;;
+          esac
+
+      - name: And a wrong pin is refused
+        run: |
+          binary="$(realpath target/diderot-*-runner)"
+          cd /tmp/e2e-project
+          sed -i 's|identity: .*|identity: https://github.com/attacker/tools/.github/workflows/release.yml@refs/heads/main|' diderot.yaml
+          rm -f diderot.lock
+          set +e
+          out="$("$binary" update 2>&1)"
+          rc=$?
+          set -e
+          echo "$out"
+          [ "$rc" -eq 0 ] && { echo "::error::a wrong signer was accepted"; exit 1; }
+          case "$out" in
+            *"not by the expected signer"*) echo "refused, naming both identities" ;;
+            *) echo "::error::refused for the wrong reason: $out"; exit 1 ;;
+          esac
