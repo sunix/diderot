@@ -67,3 +67,11 @@ chapter so each stays a readable size. Updated on request as the work progresses
    arrives from teammates, the walk from either command down to the one call that reaches sigstore,
    what a consumer actually needs at run time (neither Fulcio nor Rekor — measured in a network
    namespace), and five scenarios, two of them refusals.
+10. [The first real signature](doc/making-of/10-the-first-real-signature.md) — everything was proven
+    in tests, and publishing one real skill took ten rounds: the refusal that came back before
+    anything was signed, the caveat part seven recorded coming true on the first attempt, an error
+    message that said nothing and the twelve lines that fixed it, the one cause behind ten failures
+    (what native-image cannot see: resources, reflection, service files), a harness that brought a
+    hypothesis down from a release to four minutes, a test that listed what it tolerated instead of
+    what it refuses, a release that shipped with no binaries again — and a skill on ghcr anyone can
+    verify with six lines of `diderot.yaml`.
