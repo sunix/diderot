@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/sunix/diderot/compare/v0.4.2...v0.4.3) (2026-10-26)
+
+
+### Bug Fixes
+
+* **release:** build the Linux binaries against glibc 2.28 ([#54](https://github.com/sunix/diderot/issues/54)) ([941ab49](https://github.com/sunix/diderot/commit/941ab49847054b751fd545f378d2cbff3517ae99))
+
 ## [0.4.2](https://github.com/sunix/diderot/compare/v0.4.1...v0.4.2) (2026-10-25)
 
 
