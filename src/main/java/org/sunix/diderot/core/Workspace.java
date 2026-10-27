@@ -60,11 +60,7 @@ public class Workspace {
                 case OCI -> lockOciSkill(skill, ref);
             };
             lock.skills.add(locked);
-            // With ranges in play, the repository alone no longer says what was chosen.
-            String reference = locked.tag == null ? ref.url() : ref.url() + ":" + locked.tag;
-            out.printf("locked %-20s %s@%s (%s%s)%n",
-                    skill.name, reference, shortSha(locked.resolved), locked.digest,
-                    locked.signer == null ? "" : ", signer ok");
+            reportLocked(ref, locked);
         }
         lock.skills.sort(Comparator.comparing(s -> s.name));
         Yaml.write(lockPath(), lock);
@@ -270,10 +266,22 @@ public class Workspace {
             case GIT -> lockGitSkill(skill, ref);
             case OCI -> lockOciSkill(skill, ref);
         };
-        String reference = locked.tag == null ? ref.url() : ref.url() + ":" + locked.tag;
-        out.printf("locked %-20s %s@%s (%s)%n",
-                skill.name, reference, shortSha(locked.resolved), locked.digest);
+        reportLocked(ref, locked);
         return locked;
+    }
+
+    /**
+     * The one line a resolution prints. `update` and `add` both end here, so a signature that was
+     * checked says so whichever command checked it - the first version of `add` verified the
+     * signer and then printed a line that never mentioned it, which reads exactly like a project
+     * where nothing was verified at all.
+     */
+    private void reportLocked(SourceRef ref, LockedSkill locked) {
+        // With ranges in play, the repository alone no longer says what was chosen.
+        String reference = locked.tag == null ? ref.url() : ref.url() + ":" + locked.tag;
+        out.printf("locked %-20s %s@%s (%s%s)%n",
+                locked.name, reference, shortSha(locked.resolved), locked.digest,
+                locked.signer == null ? "" : ", signer ok");
     }
 
     /** Adds or replaces one entry in the lockfile, leaving every other pin exactly as it was. */
