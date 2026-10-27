@@ -68,6 +68,14 @@ public final class ManifestEditor {
 
     /** Appends one skill after the last existing entry, creating the {@code skills:} key if absent. */
     public void add(String name, String source, String version) {
+        add(name, source, version, null);
+    }
+
+    /**
+     * As above, writing a {@code signer:} block when one is pinned. The block is two lines under
+     * the entry, in the shape {@code Manifest.ManifestSkill} reads back.
+     */
+    public void add(String name, String source, String version, Signer signer) {
         int header = skillsHeader();
         if (header < 0) {
             if (!lines.isEmpty() && !lines.get(lines.size() - 1).isBlank()) {
@@ -80,10 +88,15 @@ public final class ManifestEditor {
             lines.set(header, "skills:");
         }
         String indent = listIndent(header);
-        List<String> entry = List.of(
+        List<String> entry = new ArrayList<>(List.of(
                 indent + "- name: " + name,
                 indent + "  source: " + source,
-                indent + "  version: " + scalar(version, quotesVersions()));
+                indent + "  version: " + scalar(version, quotesVersions())));
+        if (signer != null) {
+            entry.add(indent + "  signer:");
+            entry.add(indent + "    identity: " + signer.identity);
+            entry.add(indent + "    issuer: " + signer.issuer);
+        }
         lines.addAll(insertionPoint(header), entry);
     }
 

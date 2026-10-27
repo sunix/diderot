@@ -96,6 +96,22 @@ class SigningTest {
                 "the same bundle, once the project says whose signature it expects");
     }
 
+    /**
+     * What `add` offers to pin comes out of the bundle itself: the identity the certificate names,
+     * and the issuer that vouched for it. Both have to be readable from an ordinary signature, or
+     * the offer cannot be made.
+     */
+    @Test
+    void theBundleSaysWhoSignedAndWhoVouchedForThem() throws Exception {
+        String digest = sha256Of("a bundle an add command would read");
+        String bundle = signing.signDigest(digest);
+
+        var signer = Signing.identityOf(bundle);
+
+        assertEquals(IDENTITY, signer.identity, "the certificate's subject alternative name");
+        assertEquals(ISSUER, signer.issuer, "read out of the sigstore issuer extension");
+    }
+
     private static byte[] rawDigestBytes(String digest) {
         return HexFormat.of().parseHex(digest.substring("sha256:".length()));
     }

@@ -80,6 +80,26 @@ jobs:
             *) echo "::error::update did not verify the signature: $out"; exit 1 ;;
           esac
 
+      # The pin a person would actually get: `add` reads the signature it just resolved, shows the
+      # identity, and writes it into diderot.yaml — nobody copies a workflow ref from a web page.
+      - name: add offers the signer it found, and pins it
+        run: |
+          binary="$(realpath target/diderot-*-runner)"
+          mkdir -p /tmp/e2e-add && cd /tmp/e2e-add
+          out="$("$binary" add --pin-signer oci://localhost:5000/skills/e2e-native --version v1 2>&1)"
+          echo "$out"
+          cat diderot.yaml
+          case "$out" in
+            *"signed by"*) ;;
+            *) echo "::error::add did not report the signature: $out"; exit 1 ;;
+          esac
+          grep -q "identity: https://github.com/${{ github.repository }}/.github/workflows/signing-e2e.yml@${{ github.ref }}" diderot.yaml \
+            || { echo "::error::the identity was not pinned in diderot.yaml"; exit 1; }
+          case "$out" in
+            *"signer ok"*) echo "pinned and verified in one command" ;;
+            *) echo "::error::the pin was written but never verified: $out"; exit 1 ;;
+          esac
+
       - name: And a wrong pin is refused
         run: |
           binary="$(realpath target/diderot-*-runner)"

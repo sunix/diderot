@@ -2,6 +2,7 @@ package org.sunix.diderot.oci;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.Collection;
@@ -13,6 +14,8 @@ import dev.sigstore.KeylessSignerException;
 import dev.sigstore.KeylessVerificationException;
 import dev.sigstore.KeylessVerifier;
 import dev.sigstore.VerificationOptions;
+import org.sunix.diderot.core.Signer;
+
 import dev.sigstore.VerificationOptions.CertificateMatcher;
 import dev.sigstore.bundle.Bundle;
 import dev.sigstore.bundle.BundleParseException;
@@ -123,6 +126,65 @@ public class Signing {
      * match" leaves a human unable to tell an attack from a renamed workflow. Best-effort — a bundle
      * that cannot be read at all still has to produce something printable.
      */
+    /**
+     * The identity a bundle carries, as a pin a manifest could hold: the certificate's subject
+     * alternative name, and the OIDC issuer that vouched for it. Returns null when the bundle
+     * cannot be read or carries neither — a caller offering to pin a signer has nothing to offer.
+     *
+     * <p>The issuer lives in an extension rather than a field. sigstore writes two: the original
+     * {@code 1.3.6.1.4.1.57264.1.1}, whose value is the bare string, and
+     * {@code 1.3.6.1.4.1.57264.1.8}, which wraps the same string in a DER UTF8String. The first is
+     * deprecated and still emitted; both are read here, the plain one first.
+     */
+    public static Signer identityOf(String bundleJson) {
+        try {
+            Bundle bundle = Bundle.from(new StringReader(bundleJson));
+            List<? extends Certificate> certificates = bundle.getCertPath().getCertificates();
+            if (certificates.isEmpty() || !(certificates.get(0) instanceof X509Certificate certificate)) {
+                return null;
+            }
+            String identity = subjectAlternativeName(certificate);
+            String issuer = extensionString(certificate, "1.3.6.1.4.1.57264.1.1");
+            if (issuer == null) {
+                issuer = extensionString(certificate, "1.3.6.1.4.1.57264.1.8");
+            }
+            return identity == null || issuer == null ? null : new Signer(identity, issuer);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String subjectAlternativeName(X509Certificate certificate) throws Exception {
+        Collection<List<?>> names = certificate.getSubjectAlternativeNames();
+        if (names == null) {
+            return null;
+        }
+        for (List<?> name : names) {
+            if (name.size() == 2 && name.get(1) instanceof String value) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The string inside an X.509 extension. {@code getExtensionValue} hands back the DER octet
+     * string that wraps the value, so the wrapper is stepped over — and then the value itself may
+     * be another DER string, which is stepped over too. Anything that does not come out looking
+     * like a URL is treated as unreadable rather than guessed at.
+     */
+    private static String extensionString(X509Certificate certificate, String oid) {
+        byte[] raw = certificate.getExtensionValue(oid);
+        if (raw == null || raw.length < 3) {
+            return null;
+        }
+        String value = new String(raw, 2, raw.length - 2, StandardCharsets.UTF_8);
+        if (!value.startsWith("http") && value.length() > 2) {
+            value = value.substring(2);
+        }
+        return value.startsWith("http") ? value : null;
+    }
+
     public static String signerOf(String bundleJson) {
         try {
             Bundle bundle = Bundle.from(new StringReader(bundleJson));

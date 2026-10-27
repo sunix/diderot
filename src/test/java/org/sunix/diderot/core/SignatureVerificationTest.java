@@ -109,6 +109,26 @@ class SignatureVerificationTest {
     }
 
     @Test
+    void theOneLineAddPrintsSaysTheSignatureWasChecked() throws Exception {
+        String repository = publishSigned("add-reports");
+        Path project = Files.createDirectories(tmp.resolve("add-reports-consumer"));
+        Manifest.ManifestSkill skill = new Manifest.ManifestSkill();
+        skill.name = "making-of";
+        skill.source = "oci://" + repository;
+        skill.version = "v1";
+        skill.signer = new Signer(IDENTITY, ISSUER);
+        StringWriter output = new StringWriter();
+
+        LockFile.LockedSkill locked = workspace(project, output).resolve(skill);
+
+        assertEquals(IDENTITY, locked.signer.identity);
+        assertTrue(output.toString().contains("signer ok"),
+                "`add` resolves through the same check as `update`, and has to say so: a line that "
+                        + "omits it reads exactly like a project where nothing was verified — "
+                        + output);
+    }
+
+    @Test
     void updateFailsClosedWhenSomebodyElseSignedIt() throws Exception {
         String repository = publishSigned("wrong-signer");
         Path project = project("wrong-signer-consumer", repository, PUBLISHER, ISSUER);

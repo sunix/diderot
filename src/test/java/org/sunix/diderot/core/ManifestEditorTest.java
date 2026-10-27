@@ -161,4 +161,45 @@ class ManifestEditorTest {
         assertFalse(editor.remove("nope"));
         assertEquals(AUTHORED, editor.text());
     }
+
+    @Test
+    void writesASignerBlockWhenOneIsPinned() {
+        ManifestEditor editor = ManifestEditor.of("""
+                skills:
+                  - name: first
+                    source: git+https://example.test/one
+                    version: main
+                """);
+
+        editor.add("making-of", "oci://ghcr.io/sunix/skills/making-of", "latest",
+                new Signer("https://github.com/sunix/ai-skills/.github/workflows/push-skill-to-oci.yml@refs/heads/main",
+                        "https://token.actions.githubusercontent.com"));
+
+        assertEquals("""
+                skills:
+                  - name: first
+                    source: git+https://example.test/one
+                    version: main
+                  - name: making-of
+                    source: oci://ghcr.io/sunix/skills/making-of
+                    version: latest
+                    signer:
+                      identity: https://github.com/sunix/ai-skills/.github/workflows/push-skill-to-oci.yml@refs/heads/main
+                      issuer: https://token.actions.githubusercontent.com
+                """, editor.text());
+    }
+
+    @Test
+    void withoutASignerTheEntryIsUnchangedFromBefore() {
+        ManifestEditor editor = ManifestEditor.of("skills: []\n");
+
+        editor.add("making-of", "oci://ghcr.io/sunix/skills/making-of", "latest", null);
+
+        assertEquals("""
+                skills:
+                  - name: making-of
+                    source: oci://ghcr.io/sunix/skills/making-of
+                    version: latest
+                """, editor.text());
+    }
 }
