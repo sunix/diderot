@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/sunix/diderot/compare/v0.4.3...v0.5.0) (2026-10-28)
+
+
+### Features
+
+* **add:** offer to pin the signer, which was the point of add ([#59](https://github.com/sunix/diderot/issues/59)) ([b25140f](https://github.com/sunix/diderot/commit/b25140f11b1a624138144d3a7a35fa79d9c86ad9))
+* **add:** pin the signer by default, instead of asking ([#61](https://github.com/sunix/diderot/issues/61)) ([6c92956](https://github.com/sunix/diderot/commit/6c929568232aca593aa2edb1b8a4c8d3351e61f1))
+
 ## [0.4.3](https://github.com/sunix/diderot/compare/v0.4.2...v0.4.3) (2026-10-26)
 
 
