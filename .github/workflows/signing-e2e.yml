@@ -80,13 +80,14 @@ jobs:
             *) echo "::error::update did not verify the signature: $out"; exit 1 ;;
           esac
 
-      # The pin a person would actually get: `add` reads the signature it just resolved, shows the
-      # identity, and writes it into diderot.yaml — nobody copies a workflow ref from a web page.
-      - name: add offers the signer it found, and pins it
+      # The pin a person actually gets, with no flag typed: `add` reads the signature it just
+      # resolved, shows the identity and writes it into diderot.yaml — nobody copies a workflow ref
+      # from a web page, and this runs with no terminal to ask on, which is where it used to give up.
+      - name: add pins the signer it found, without being asked to
         run: |
           binary="$(realpath target/diderot-*-runner)"
           mkdir -p /tmp/e2e-add && cd /tmp/e2e-add
-          out="$("$binary" add --pin-signer oci://localhost:5000/skills/e2e-native --version v1 2>&1)"
+          out="$("$binary" add oci://localhost:5000/skills/e2e-native --version v1 2>&1)"
           echo "$out"
           cat diderot.yaml
           case "$out" in
@@ -98,6 +99,20 @@ jobs:
           case "$out" in
             *"signer ok"*) echo "pinned and verified in one command" ;;
             *) echo "::error::the pin was written but never verified: $out"; exit 1 ;;
+          esac
+
+      # And the way out stays open, because a default that cannot be turned off is not a default.
+      - name: --no-pin-signer declares the same skill with no constraint
+        run: |
+          binary="$(realpath target/diderot-*-runner)"
+          mkdir -p /tmp/e2e-no-pin && cd /tmp/e2e-no-pin
+          out="$("$binary" add --no-pin-signer oci://localhost:5000/skills/e2e-native --version v1 2>&1)"
+          echo "$out"
+          cat diderot.yaml
+          grep -q "signer:" diderot.yaml && { echo "::error::--no-pin-signer pinned anyway"; exit 1; }
+          case "$out" in
+            *"signer ok"*) echo "::error::nothing was pinned, so nothing should have been verified: $out"; exit 1 ;;
+            *) echo "declared without a signer, as asked" ;;
           esac
 
       - name: And a wrong pin is refused

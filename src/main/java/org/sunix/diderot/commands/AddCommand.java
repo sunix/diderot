@@ -45,11 +45,22 @@ public class AddCommand implements Callable<Integer> {
             description = "Project root containing diderot.yaml (default: current directory).")
     Path directory;
 
-    @Option(names = "--pin-signer", negatable = true,
-            description = "Pin the signer of a signed skill without asking (or refuse to, with "
-                    + "--no-pin-signer). Without either, you are asked when there is a terminal to "
-                    + "ask on, and nothing is pinned when there is not.")
-    Boolean pinSigner;
+    /**
+     * Says out loud what already happens, so a script can state its intent. Not declared as
+     * picocli's {@code negatable = true}: with a default of true, picocli swaps the two spellings,
+     * and {@code --pin-signer} would have turned pinning <em>off</em>. A flag that does the
+     * opposite of what it reads is bad anywhere and indefensible on a signature check.
+     */
+    @Option(names = "--pin-signer",
+            description = "Record the signer of a signed skill in diderot.yaml. This is already "
+                    + "what happens; the flag is here for scripts that would rather say so.")
+    boolean pinSigner;
+
+    @Option(names = "--no-pin-signer",
+            description = "Declare the skill without recording its signer, so later resolutions "
+                    + "accept whoever signed it. By default a signed skill is pinned to the "
+                    + "identity that signed it, and every later resolution has to find that one.")
+    boolean noPinSigner;
 
     @Spec
     CommandSpec spec;
@@ -61,6 +72,10 @@ public class AddCommand implements Callable<Integer> {
         Path manifestPath = root.resolve("diderot.yaml");
         String original = null;
         try {
+            if (pinSigner && noPinSigner) {
+                throw new IllegalArgumentException(
+                        "--pin-signer and --no-pin-signer contradict each other.");
+            }
             SourceRef ref = SourceRef.parse(source);
             String skillName = name != null && !name.isBlank() ? name : inferName(ref);
 
@@ -89,7 +104,7 @@ public class AddCommand implements Callable<Integer> {
             // Resolve before writing anything: whether this skill carries a signature is part of
             // what the entry should say, and it can only be known once the artifact is in hand.
             LockedSkill locked = workspace.resolve(skill);
-            skill.signer = offerToPin(ref, locked, oras, skillName, out);
+            skill.signer = signerToPin(ref, locked, oras, out);
 
             // Then write the manifest, and put the file back exactly as it was if anything after
             // this fails rather than leaving a declaration nothing can resolve.
@@ -127,17 +142,23 @@ public class AddCommand implements Callable<Integer> {
 
 
     /**
-     * Shows who signed the skill that was just resolved, and decides whether to pin them.
+     * Who signed the skill that was just resolved, which is what the entry will demand from here on.
      *
-     * <p>This is the moment part six of the making-of was arguing for: an identity can be accepted
-     * here because it is in front of the person, rather
-     * than copied from a web page — and a string copied from a web page is a string an attacker can
-     * supply. An unsigned skill says nothing at all: most of the ecosystem is unsigned, and a
-     * warning on every add is a warning nobody reads.
+     * <p>This asked, at first, on the argument part six makes: an identity accepted because it went
+     * past somebody's eyes is worth more than one copied from a web page, and a string copied from a
+     * web page is a string an attacker can supply. The argument holds against the web page and not
+     * against the prompt. Nothing asks before writing the resolved digest into diderot.lock, and
+     * pinning a signer is the same act — recording what was true at declaration time so that a
+     * change becomes visible later. That record is worth the same whether or not the identity was
+     * read. And the question had no answer at all where it mattered most: an agent or a CI job has
+     * no terminal, so the old default there was an unverified project that looked exactly like a
+     * verified one.
+     *
+     * <p>An unsigned skill still says nothing: most of the ecosystem is unsigned, and a warning on
+     * every add is a warning nobody reads.
      */
-    private Signer offerToPin(SourceRef ref, LockedSkill locked, OrasClient oras, String skillName,
-            PrintWriter out) {
-        if (ref.kind() != SourceRef.Kind.OCI || Boolean.FALSE.equals(pinSigner)) {
+    private Signer signerToPin(SourceRef ref, LockedSkill locked, OrasClient oras, PrintWriter out) {
+        if (ref.kind() != SourceRef.Kind.OCI || noPinSigner) {
             return null;
         }
         Signer signer = oras.fetchSignature(ref.url(), locked.resolved)
@@ -148,18 +169,8 @@ public class AddCommand implements Callable<Integer> {
         }
         out.printf("  signed by   %s%n", signer.identity);
         out.printf("  issuer      %s%n", signer.issuer);
-        if (Boolean.TRUE.equals(pinSigner)) {
-            return signer;
-        }
-        if (System.console() == null) {
-            // No terminal: an agent or a CI job. Say what was found and what was not done with it,
-            // because silence here would leave an unverified project looking like a verified one.
-            out.printf("  not pinned (no terminal to ask on) — add --pin-signer to trust this "
-                    + "signer for %s%n", skillName);
-            return null;
-        }
-        String answer = System.console().readLine("  Trust this signer for %s? [y/N] ", skillName);
-        return answer != null && answer.trim().toLowerCase().startsWith("y") ? signer : null;
+        out.printf("  pinned      in diderot.yaml — --no-pin-signer declares it without that%n");
+        return signer;
     }
 
     /** `oci://ghcr.io/sunix/skills/making-of` and `git+https://…#skills/doc/making-of` both give `making-of`. */

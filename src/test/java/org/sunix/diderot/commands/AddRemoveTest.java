@@ -140,6 +140,36 @@ class AddRemoveTest {
                 "the error names the source it already points at: " + err);
     }
 
+    /**
+     * The spelling, not the behaviour — but this one earns a test. Declared as picocli's
+     * {@code negatable = true} with a default of true, the two names come out swapped:
+     * {@code --pin-signer} parsed to false and {@code --no-pin-signer} to true, which would have
+     * shipped a flag that silently disabled the check it names.
+     */
+    @Test
+    void eachFlagMeansWhatItSays() {
+        AddCommand bare = new AddCommand();
+        new CommandLine(bare).parseArgs("oci://ghcr.io/sunix/skills/making-of");
+        assertFalse(bare.noPinSigner, "a signed skill is declared with its signer, no flag typed");
+
+        AddCommand asked = new AddCommand();
+        new CommandLine(asked).parseArgs("--pin-signer", "oci://ghcr.io/sunix/skills/making-of");
+        assertTrue(asked.pinSigner);
+        assertFalse(asked.noPinSigner, "--pin-signer pins; it does not mean its own opposite");
+
+        AddCommand optedOut = new AddCommand();
+        new CommandLine(optedOut).parseArgs("--no-pin-signer", "oci://ghcr.io/sunix/skills/making-of");
+        assertTrue(optedOut.noPinSigner, "and the way out stays open, or it is not a default");
+    }
+
+    @Test
+    void theTwoFlagsTogetherAreRefused() throws Exception {
+        assertEquals(1, run(new AddCommand(), "--pin-signer", "--no-pin-signer",
+                "-C", project.toString(), "oci://ghcr.io/sunix/skills/making-of"));
+        assertTrue(err.toString().contains("contradict"), err.toString());
+        assertFalse(Files.exists(project.resolve("diderot.yaml")), "and nothing was written");
+    }
+
     @Test
     void removeUndeclaresUnpinsAndDeletesTheInstalledCopy() throws Exception {
         run(new AddCommand(), source("skills/documentation/making-of"), "--version", "main",
