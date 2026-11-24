@@ -25,9 +25,9 @@ public class UpdateCommand implements Callable<Integer> {
     Path directory;
 
     @Option(names = { "-y", "--yes" },
-            description = "Trust the signers that are printed without being asked: a pinned skill "
-                    + "now signed by somebody else gets re-pinned. Only for a script that has read "
-                    + "those identities.")
+            description = "Trust the signers that are printed without being asked: a signed skill "
+                    + "that pins nobody yet gets pinned, and a pinned skill now signed by somebody "
+                    + "else gets re-pinned. Only for a script that has read those identities.")
     boolean yes;
 
     @Spec

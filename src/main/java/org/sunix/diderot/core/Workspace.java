@@ -30,6 +30,8 @@ public class Workspace {
     public enum UnpinnedSigner {
         /** Resolve as if signing did not exist: `add --no-pin-signer`, and `resolve` by default. */
         IGNORE,
+        /** Show the signer and offer to pin it; no or nobody to ask leaves it unpinned (`update`). */
+        OFFER,
         /** The signer has to be confirmed, or nothing is resolved (`add`). */
         REQUIRE
     }
@@ -81,7 +83,7 @@ public class Workspace {
             Signer before = skill.signer;
             LockedSkill locked = switch (ref.kind()) {
                 case GIT -> lockGitSkill(skill, ref);
-                case OCI -> lockOciSkill(skill, ref, UnpinnedSigner.IGNORE);
+                case OCI -> lockOciSkill(skill, ref, UnpinnedSigner.OFFER);
             };
             if (skill.signer != before) {
                 newPins.put(skill.name, skill.signer);
@@ -224,20 +226,33 @@ public class Workspace {
         if (found == null) {
             String problem = "Skill '" + skill.name + "': " + repository + "@" + digest
                     + " carries a signature that does not verify against its own content.";
-            throw new IOException(problem + " Nothing was written.");
+            if (unpinned == UnpinnedSigner.REQUIRE) {
+                throw new IOException(problem + " Nothing was written.");
+            }
+            out.println("  warning: " + problem + " Not offered for pinning.");
+            return null;
         }
         printSigner(found);
-        Optional<Boolean> answer = confirm.ask("  Trust this signer for " + skill.name + "?");
+        boolean required = unpinned == UnpinnedSigner.REQUIRE;
+        Optional<Boolean> answer = confirm.ask(required
+                ? "  Trust this signer for " + skill.name + "?"
+                : "  Pin this signer for " + skill.name + " in diderot.yaml?");
         if (answer.orElse(false)) {
             skill.signer = found;
             return found;
         }
-        throw new IOException(answer.isEmpty()
+        if (required) {
+            throw new IOException(answer.isEmpty()
                     ? "Skill '" + skill.name + "' is signed, and there is no terminal to confirm the"
                             + " signer on. Read the identity above, then pass --yes to trust it, or"
                             + " --no-pin-signer to declare the skill without a signer. Nothing was written."
                     : "Skill '" + skill.name + "': signer not trusted, so it was not added."
                             + " --no-pin-signer declares it without a signer.");
+        }
+        out.println(answer.isEmpty()
+                ? "  not pinned  no terminal to ask on — `diderot update --yes` pins it"
+                : "  not pinned");
+        return null;
     }
 
     /** Who signed {@code bundle}, only when that signature really covers {@code content}; else null. */

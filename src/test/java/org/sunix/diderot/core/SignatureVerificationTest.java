@@ -259,6 +259,36 @@ class SignatureVerificationTest {
     }
 
     @Test
+    void updateOffersToPinASignedSkillThatPinsNobody() throws Exception {
+        String repository = publishSigned("update-offer");
+        Path project = project("update-offer-consumer", repository, null, null);
+        List<String> asked = new ArrayList<>();
+
+        LockFile lock = workspace(project, new StringWriter())
+                .confirmingWith(answering(true, asked)).update();
+
+        assertEquals(List.of("  Pin this signer for making-of in diderot.yaml?"), asked);
+        assertEquals(manifestYaml(repository, IDENTITY, ISSUER),
+                Files.readString(project.resolve("diderot.yaml")),
+                "the pin lands in the entry, and only there");
+        assertEquals(IDENTITY, lock.skills.get(0).signer.identity);
+    }
+
+    @Test
+    void updateWithNoTerminalLeavesAnUnpinnedSkillAsItWas() throws Exception {
+        String repository = publishSigned("update-offer-headless");
+        Path project = project("update-offer-headless-consumer", repository, null, null);
+        StringWriter output = new StringWriter();
+
+        LockFile lock = workspace(project, output).confirmingWith(Confirm.nobody()).update();
+
+        assertEquals(manifestYaml(repository, null, null), Files.readString(project.resolve("diderot.yaml")),
+                "it never pinned before, so a pipeline running update is not broken by this");
+        assertEquals(null, lock.skills.get(0).signer);
+        assertTrue(output.toString().contains("update --yes"), output.toString());
+    }
+
+    @Test
     void updateAsksBeforeTrustingANewSignerAndRePinsOnYes() throws Exception {
         String repository = publishSigned("update-changed");
         Path project = project("update-changed-consumer", repository, PUBLISHER, ISSUER);
