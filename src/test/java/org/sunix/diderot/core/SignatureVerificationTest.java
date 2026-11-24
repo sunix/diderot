@@ -247,6 +247,50 @@ class SignatureVerificationTest {
         assertEquals(null, skill.signer, "nothing signed, nothing to confirm");
     }
 
+    @Test
+    void updateDoesNotAskAboutASignerAlreadyPinned() throws Exception {
+        String repository = publishSigned("update-same");
+        Path project = project("update-same-consumer", repository, IDENTITY, ISSUER);
+        String manifest = Files.readString(project.resolve("diderot.yaml"));
+
+        workspace(project, new StringWriter()).confirmingWith(neverAsked()).update();
+
+        assertEquals(manifest, Files.readString(project.resolve("diderot.yaml")));
+    }
+
+    @Test
+    void updateAsksBeforeTrustingANewSignerAndRePinsOnYes() throws Exception {
+        String repository = publishSigned("update-changed");
+        Path project = project("update-changed-consumer", repository, PUBLISHER, ISSUER);
+        StringWriter output = new StringWriter();
+        List<String> asked = new ArrayList<>();
+
+        LockFile lock = workspace(project, output).confirmingWith(answering(true, asked)).update();
+
+        assertEquals(List.of("  Trust the new signer for making-of?"), asked);
+        assertTrue(output.toString().contains("pinned      " + PUBLISHER), "what was trusted before: " + output);
+        assertTrue(output.toString().contains("signed by   " + IDENTITY), "and who signs it now: " + output);
+        assertEquals(manifestYaml(repository, IDENTITY, ISSUER), Files.readString(project.resolve("diderot.yaml")));
+        assertEquals(IDENTITY, lock.skills.get(0).signer.identity);
+    }
+
+    @Test
+    void updateKeepsRefusingANewSignerThatIsDeclinedOrCannotBeAskedAbout() throws Exception {
+        String repository = publishSigned("update-changed-no");
+        Path project = project("update-changed-no-consumer", repository, PUBLISHER, ISSUER);
+        String manifest = Files.readString(project.resolve("diderot.yaml"));
+
+        IOException declined = assertThrows(IOException.class, () -> workspace(project, new StringWriter())
+                .confirmingWith(answering(false, new ArrayList<>())).update());
+        IOException headless = assertThrows(IOException.class, () -> workspace(project, new StringWriter())
+                .confirmingWith(Confirm.nobody()).update());
+
+        assertTrue(declined.getMessage().contains("not by the expected signer"), declined.getMessage());
+        assertTrue(headless.getMessage().contains("--yes"), headless.getMessage());
+        assertEquals(manifest, Files.readString(project.resolve("diderot.yaml")));
+        assertFalse(Files.exists(project.resolve("diderot.lock")), "nothing was written");
+    }
+
     private static Manifest.ManifestSkill unpinnedSkill(String repository) {
         Manifest.ManifestSkill skill = new Manifest.ManifestSkill();
         skill.name = "making-of";

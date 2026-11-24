@@ -202,4 +202,64 @@ class ManifestEditorTest {
                     version: latest
                 """, editor.text());
     }
+
+    @Test
+    void pinningASignerOnAnExistingEntryTouchesOnlyThatEntry() {
+        ManifestEditor editor = ManifestEditor.of(AUTHORED);
+
+        editor.pinSigner("making-of", new Signer("ci@example.test", "https://issuer.example.test"));
+
+        assertEquals("""
+                # Skills this project depends on.
+                # Keep making-of first: the others reference its style rules.
+                skills:
+                  - name: making-of          # the journal skill
+                    source: oci://ghcr.io/sunix/skills/making-of
+                    version: "^1.0.0"
+                    signer:
+                      identity: ci@example.test
+                      issuer: https://issuer.example.test
+
+                targets: [claude]
+                """, editor.text());
+    }
+
+    @Test
+    void pinningANewSignerReplacesTheOldBlockRatherThanAddingASecond() {
+        ManifestEditor editor = ManifestEditor.of("""
+                skills:
+                  - name: making-of
+                    source: oci://ghcr.io/sunix/skills/making-of
+                    signer:
+                      identity: old@example.test
+                      issuer: https://old.example.test
+                    version: latest
+                  - name: other
+                    source: git+https://example.test/one
+                    version: main
+                """);
+
+        editor.pinSigner("making-of", new Signer("new@example.test", "https://new.example.test"));
+
+        assertEquals("""
+                skills:
+                  - name: making-of
+                    source: oci://ghcr.io/sunix/skills/making-of
+                    version: latest
+                    signer:
+                      identity: new@example.test
+                      issuer: https://new.example.test
+                  - name: other
+                    source: git+https://example.test/one
+                    version: main
+                """, editor.text());
+    }
+
+    @Test
+    void pinningASkillThatIsNotDeclaredIsRefused() {
+        ManifestEditor editor = ManifestEditor.of(AUTHORED);
+        assertThrows(IllegalStateException.class,
+                () -> editor.pinSigner("nope", new Signer("a", "b")));
+        assertEquals(AUTHORED, editor.text());
+    }
 }

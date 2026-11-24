@@ -6,7 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.sunix.diderot.core.LockFile.LockedSkill;
@@ -70,15 +72,29 @@ public class Workspace {
     public LockFile update() throws IOException {
         Manifest manifest = readManifest();
         LockFile lock = new LockFile();
+        // Signers confirmed during this run. Written to diderot.yaml only once every skill has
+        // resolved, so a refusal halfway through leaves both files as they were.
+        Map<String, Signer> newPins = new LinkedHashMap<>();
         for (ManifestSkill skill : manifest.skills) {
             requireName(skill);
             SourceRef ref = SourceRef.parse(skill.source);
+            Signer before = skill.signer;
             LockedSkill locked = switch (ref.kind()) {
                 case GIT -> lockGitSkill(skill, ref);
                 case OCI -> lockOciSkill(skill, ref, UnpinnedSigner.IGNORE);
             };
+            if (skill.signer != before) {
+                newPins.put(skill.name, skill.signer);
+            }
             lock.skills.add(locked);
             reportLocked(ref, locked);
+        }
+        if (!newPins.isEmpty()) {
+            ManifestEditor editor = ManifestEditor.of(Files.readString(manifestPath()));
+            newPins.forEach(editor::pinSigner);
+            Files.writeString(manifestPath(), editor.text());
+            newPins.keySet().forEach(name -> out.printf("pinned %-20s signer in %s%n",
+                    name, manifestPath().getFileName()));
         }
         lock.skills.sort(Comparator.comparing(s -> s.name));
         Yaml.write(lockPath(), lock);
@@ -164,9 +180,9 @@ public class Workspace {
 
     /**
      * Decides which signer, if any, this skill is held to — and asks before trusting one the
-     * project has not trusted yet (#63): a signer already pinned is enforced without a question,
-     * because it was confirmed when it was pinned; a signer that would be pinned for the first time
-     * is shown and has to be accepted.
+     * project has not trusted yet. The rule is the whole of issue #63: a signer already pinned is
+     * enforced without a question, because it was confirmed when it was pinned; a signer that would
+     * be pinned for the first time, or that replaces the pinned one, is shown and has to be accepted.
      *
      * <p>Whatever is offered has first been verified against its own identity, so a person is never
      * asked to trust a bundle that does not even cover these bytes. Accepting sets
@@ -175,7 +191,26 @@ public class Workspace {
     private Signer trustSigner(ManifestSkill skill, UnpinnedSigner unpinned, String repository, String digest,
             Path content) throws IOException {
         if (skill.signer != null) {
-            return enforcePinnedSigner(skill.name, skill.signer, repository, digest, content);
+            try {
+                return enforcePinnedSigner(skill.name, skill.signer, repository, digest, content);
+            } catch (SignerMismatch mismatch) {
+                Signer found = selfConsistentSigner(mismatch.bundle, content);
+                if (found == null) {
+                    throw mismatch;
+                }
+                out.printf("  %s is now signed by somebody other than the signer diderot.yaml pins%n", skill.name);
+                out.printf("  pinned      %s (%s)%n", skill.signer.identity, skill.signer.issuer);
+                printSigner(found);
+                Optional<Boolean> answer = confirm.ask("  Trust the new signer for " + skill.name + "?");
+                if (answer.orElse(false)) {
+                    skill.signer = found;
+                    return found;
+                }
+                throw new IOException(mismatch.getMessage() + (answer.isEmpty()
+                        ? "\n       No terminal to confirm the new signer on: run in a terminal, or pass"
+                                + " --yes once you have read the identity above."
+                        : ""), mismatch);
+            }
         }
         if (unpinned == UnpinnedSigner.IGNORE) {
             return null;
@@ -223,6 +258,16 @@ public class Workspace {
         out.printf("  signed by   %s%n", signer.identity);
         out.printf("  issuer      %s%n", signer.issuer);
         out.flush();
+    }
+
+    /** A signature that verifies, by somebody other than the pinned signer. Carries the bundle. */
+    private static final class SignerMismatch extends IOException {
+        final transient String bundle;
+
+        SignerMismatch(String message, String bundle, Throwable cause) {
+            super(message, cause);
+            this.bundle = bundle;
+        }
     }
 
     /** The signer pinned for {@code name} in the manifest, or null when the skill pins none. */
@@ -277,11 +322,11 @@ public class Workspace {
         } catch (IOException e) {
             // Name both identities. A refusal has to tell a human what to do next, not only that
             // something was wrong — and this throws before Yaml.write, so nothing is recorded.
-            throw new IOException("Skill '" + name + "': " + repository + "@" + digest
+            throw new SignerMismatch("Skill '" + name + "': " + repository + "@" + digest
                     + " is signed, but not by the expected signer.\n"
                     + "       expected  " + expected.identity + "\n"
                     + "       found     " + Signing.signerOf(bundle) + "\n"
-                    + "       Nothing was written.", e);
+                    + "       Nothing was written.", bundle, e);
         }
         // Handed back to the caller for the lockfile: it records who was verified, not just what.
         return new Signer(expected.identity, expected.issuer);

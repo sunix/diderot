@@ -100,6 +100,46 @@ public final class ManifestEditor {
         lines.addAll(insertionPoint(header), entry);
     }
 
+    /**
+     * Pins {@code signer} on the existing entry {@code name}, replacing whatever {@code signer:}
+     * block it had and touching no other line. This is what `update` writes once somebody has
+     * confirmed a signer the project did not trust before.
+     */
+    public void pinSigner(String name, Signer signer) {
+        for (int[] item : items()) {
+            if (!name.equals(field(item, "name"))) {
+                continue;
+            }
+            String first = lines.get(item[0]);
+            String fieldIndent = first.substring(0, first.indexOf('-')) + "  ";
+            int end = item[1];
+            while (end - 1 > item[0] && lines.get(end - 1).isBlank()) {
+                end--;
+            }
+            // Drop the old block: its `signer:` line and the deeper-indented lines under it.
+            for (int i = item[0] + 1; i < end; i++) {
+                if (!lines.get(i).equals(fieldIndent + "signer:")
+                        && !lines.get(i).startsWith(fieldIndent + "signer: ")) {
+                    continue;
+                }
+                int stop = i + 1;
+                while (stop < end && (lines.get(stop).isBlank()
+                        || lines.get(stop).startsWith(fieldIndent + " "))) {
+                    stop++;
+                }
+                lines.subList(i, stop).clear();
+                end -= stop - i;
+                break;
+            }
+            lines.addAll(end, List.of(
+                    fieldIndent + "signer:",
+                    fieldIndent + "  identity: " + signer.identity,
+                    fieldIndent + "  issuer: " + signer.issuer));
+            return;
+        }
+        throw new IllegalStateException("Skill '" + name + "' is not declared in diderot.yaml.");
+    }
+
     /** Removes the entry named {@code name}; returns false when there was nothing to remove. */
     public boolean remove(String name) {
         for (int[] item : items()) {
