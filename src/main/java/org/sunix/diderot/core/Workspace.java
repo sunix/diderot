@@ -21,11 +21,23 @@ import org.sunix.diderot.oci.Signing;
  */
 public class Workspace {
 
+    /**
+     * What to do with a signed skill whose signer {@code diderot.yaml} does not pin yet.
+     * A pinned signer is always enforced; this only decides about trusting a new one.
+     */
+    public enum UnpinnedSigner {
+        /** Resolve as if signing did not exist: `add --no-pin-signer`, and `resolve` by default. */
+        IGNORE,
+        /** The signer has to be confirmed, or nothing is resolved (`add`). */
+        REQUIRE
+    }
+
     private final Path root;
     private final GitCli git;
     private final OrasClient oci;
     private final Signing signing;
     private final PrintWriter out;
+    private Confirm confirm = Confirm.console();
 
     public Workspace(Path root, GitCli git, OrasClient oci, PrintWriter out) {
         this(root, git, oci, Signing.production(), out);
@@ -38,6 +50,12 @@ public class Workspace {
         this.oci = oci;
         this.signing = signing;
         this.out = out;
+    }
+
+    /** Who is asked before a signer is trusted: the terminal by default, {@code --yes}, or a test. */
+    public Workspace confirmingWith(Confirm confirm) {
+        this.confirm = confirm;
+        return this;
     }
 
     public Path manifestPath() {
@@ -57,7 +75,7 @@ public class Workspace {
             SourceRef ref = SourceRef.parse(skill.source);
             LockedSkill locked = switch (ref.kind()) {
                 case GIT -> lockGitSkill(skill, ref);
-                case OCI -> lockOciSkill(skill, ref);
+                case OCI -> lockOciSkill(skill, ref, UnpinnedSigner.IGNORE);
             };
             lock.skills.add(locked);
             reportLocked(ref, locked);
@@ -119,7 +137,8 @@ public class Workspace {
         return locked;
     }
 
-    private LockedSkill lockOciSkill(ManifestSkill skill, SourceRef ref) throws IOException {
+    private LockedSkill lockOciSkill(ManifestSkill skill, SourceRef ref, UnpinnedSigner unpinned)
+            throws IOException {
         String tag = resolveTag(skill, ref);
         String digest;
         try {
@@ -139,8 +158,71 @@ public class Workspace {
         locked.resolved = digest;
         locked.tag = tag;
         locked.digest = "tree:" + GitTreeHasher.treeSha(content);
-        locked.signer = enforcePinnedSigner(skill.name, skill.signer, ref.url(), digest, content);
+        locked.signer = trustSigner(skill, unpinned, ref.url(), digest, content);
         return locked;
+    }
+
+    /**
+     * Decides which signer, if any, this skill is held to — and asks before trusting one the
+     * project has not trusted yet (#63): a signer already pinned is enforced without a question,
+     * because it was confirmed when it was pinned; a signer that would be pinned for the first time
+     * is shown and has to be accepted.
+     *
+     * <p>Whatever is offered has first been verified against its own identity, so a person is never
+     * asked to trust a bundle that does not even cover these bytes. Accepting sets
+     * {@code skill.signer}; the caller writes that to diderot.yaml.
+     */
+    private Signer trustSigner(ManifestSkill skill, UnpinnedSigner unpinned, String repository, String digest,
+            Path content) throws IOException {
+        if (skill.signer != null) {
+            return enforcePinnedSigner(skill.name, skill.signer, repository, digest, content);
+        }
+        if (unpinned == UnpinnedSigner.IGNORE) {
+            return null;
+        }
+        String bundle = oci.fetchSignature(repository, digest).orElse(null);
+        if (bundle == null) {
+            // Most of the ecosystem is unsigned; a line about it on every resolution is noise.
+            return null;
+        }
+        Signer found = selfConsistentSigner(bundle, content);
+        if (found == null) {
+            String problem = "Skill '" + skill.name + "': " + repository + "@" + digest
+                    + " carries a signature that does not verify against its own content.";
+            throw new IOException(problem + " Nothing was written.");
+        }
+        printSigner(found);
+        Optional<Boolean> answer = confirm.ask("  Trust this signer for " + skill.name + "?");
+        if (answer.orElse(false)) {
+            skill.signer = found;
+            return found;
+        }
+        throw new IOException(answer.isEmpty()
+                    ? "Skill '" + skill.name + "' is signed, and there is no terminal to confirm the"
+                            + " signer on. Read the identity above, then pass --yes to trust it, or"
+                            + " --no-pin-signer to declare the skill without a signer. Nothing was written."
+                    : "Skill '" + skill.name + "': signer not trusted, so it was not added."
+                            + " --no-pin-signer declares it without a signer.");
+    }
+
+    /** Who signed {@code bundle}, only when that signature really covers {@code content}; else null. */
+    private Signer selfConsistentSigner(String bundle, Path content) {
+        Signer found = Signing.identityOf(bundle);
+        if (found == null || found.identity == null || found.issuer == null) {
+            return null;
+        }
+        try {
+            signing.verifySignature(ContentDigest.sha256Of(content), bundle, found.identity, found.issuer);
+            return found;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void printSigner(Signer signer) {
+        out.printf("  signed by   %s%n", signer.identity);
+        out.printf("  issuer      %s%n", signer.issuer);
+        out.flush();
     }
 
     /** The signer pinned for {@code name} in the manifest, or null when the skill pins none. */
@@ -260,11 +342,19 @@ public class Workspace {
      * every floating constraint already in the lock, which is not what the user asked for.
      */
     public LockedSkill resolve(ManifestSkill skill) throws IOException {
+        return resolve(skill, UnpinnedSigner.IGNORE);
+    }
+
+    /**
+     * As above, deciding what happens when the skill is signed but pins nobody yet. `add` passes
+     * {@link UnpinnedSigner#REQUIRE}: the signer is confirmed here, and set on {@code skill}.
+     */
+    public LockedSkill resolve(ManifestSkill skill, UnpinnedSigner unpinned) throws IOException {
         requireName(skill);
         SourceRef ref = SourceRef.parse(skill.source);
         LockedSkill locked = switch (ref.kind()) {
             case GIT -> lockGitSkill(skill, ref);
-            case OCI -> lockOciSkill(skill, ref);
+            case OCI -> lockOciSkill(skill, ref, unpinned);
         };
         reportLocked(ref, locked);
         return locked;

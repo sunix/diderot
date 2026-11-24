@@ -80,14 +80,29 @@ jobs:
             *) echo "::error::update did not verify the signature: $out"; exit 1 ;;
           esac
 
-      # The pin a person actually gets, with no flag typed: `add` reads the signature it just
-      # resolved, shows the identity and writes it into diderot.yaml — nobody copies a workflow ref
-      # from a web page, and this runs with no terminal to ask on, which is where it used to give up.
-      - name: add pins the signer it found, without being asked to
+      # With no terminal there is nobody to confirm the signer (#63), so a bare `add` of a signed
+      # skill has to refuse - naming the signer and the way forward - and write nothing. Silently
+      # pinning, or silently not pinning, are both what this replaces.
+      - name: add with no terminal refuses to trust a signer nobody confirmed
+        run: |
+          binary="$(realpath target/diderot-*-runner)"
+          mkdir -p /tmp/e2e-add-headless && cd /tmp/e2e-add-headless
+          if out="$("$binary" add oci://localhost:5000/skills/e2e-native --version v1 2>&1 </dev/null)"; then
+            echo "::error::add trusted a signer nobody confirmed: $out"; exit 1
+          fi
+          echo "$out"
+          case "$out" in
+            *"signed by"*"--yes"*) ;;
+            *) echo "::error::the refusal did not show the signer and say how to proceed: $out"; exit 1 ;;
+          esac
+          [ ! -e diderot.yaml ] || { echo "::error::a refused add left a diderot.yaml behind"; exit 1; }
+
+      # --yes is the script's confirmation: the identity is shown, then pinned and verified.
+      - name: add --yes pins the signer it found
         run: |
           binary="$(realpath target/diderot-*-runner)"
           mkdir -p /tmp/e2e-add && cd /tmp/e2e-add
-          out="$("$binary" add oci://localhost:5000/skills/e2e-native --version v1 2>&1)"
+          out="$("$binary" add --yes oci://localhost:5000/skills/e2e-native --version v1 2>&1)"
           echo "$out"
           cat diderot.yaml
           case "$out" in

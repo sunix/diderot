@@ -15,6 +15,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -181,6 +184,88 @@ class SignatureVerificationTest {
 
         assertEquals(null, lock.skills.get(0).signer, "nothing pinned, nothing recorded");
         assertFalse(output.toString().contains("signer ok"));
+    }
+
+    // --- #63: a signer the project has not trusted yet is shown and has to be confirmed -------
+
+    @Test
+    void addShowsTheSignerAndPinsItOnceConfirmed() throws Exception {
+        String repository = publishSigned("add-confirmed");
+        Manifest.ManifestSkill skill = unpinnedSkill(repository);
+        StringWriter output = new StringWriter();
+        List<String> asked = new ArrayList<>();
+
+        LockFile.LockedSkill locked = workspace(tmp.resolve("add-confirmed-consumer"), output)
+                .confirmingWith(answering(true, asked))
+                .resolve(skill, Workspace.UnpinnedSigner.REQUIRE);
+
+        assertEquals(List.of("  Trust this signer for making-of?"), asked);
+        assertTrue(output.toString().contains("signed by   " + IDENTITY),
+                "the identity is on screen before the question: " + output);
+        assertEquals(IDENTITY, skill.signer.identity, "accepted means pinned in the entry add writes");
+        assertEquals(ISSUER, skill.signer.issuer);
+        assertEquals(IDENTITY, locked.signer.identity, "and verified, so the lock says so");
+    }
+
+    @Test
+    void addRefusesWhenTheSignerIsDeclined() throws Exception {
+        String repository = publishSigned("add-declined");
+        Manifest.ManifestSkill skill = unpinnedSkill(repository);
+
+        IOException refusal = assertThrows(IOException.class,
+                () -> workspace(tmp.resolve("add-declined-consumer"), new StringWriter())
+                        .confirmingWith(answering(false, new ArrayList<>()))
+                        .resolve(skill, Workspace.UnpinnedSigner.REQUIRE));
+
+        assertTrue(refusal.getMessage().contains("not trusted"), refusal.getMessage());
+        assertEquals(null, skill.signer);
+    }
+
+    @Test
+    void addWithNoTerminalRefusesAndSaysHowToProceed() throws Exception {
+        String repository = publishSigned("add-headless");
+        Manifest.ManifestSkill skill = unpinnedSkill(repository);
+
+        IOException refusal = assertThrows(IOException.class,
+                () -> workspace(tmp.resolve("add-headless-consumer"), new StringWriter())
+                        .confirmingWith(Confirm.nobody())
+                        .resolve(skill, Workspace.UnpinnedSigner.REQUIRE));
+
+        assertTrue(refusal.getMessage().contains("--yes"), refusal.getMessage());
+        assertTrue(refusal.getMessage().contains("--no-pin-signer"), refusal.getMessage());
+    }
+
+    @Test
+    void anUnsignedSkillIsAddedWithoutAQuestion() throws Exception {
+        String repository = publishUnsigned("add-unsigned");
+        Manifest.ManifestSkill skill = unpinnedSkill(repository);
+
+        workspace(tmp.resolve("add-unsigned-consumer"), new StringWriter())
+                .confirmingWith(neverAsked())
+                .resolve(skill, Workspace.UnpinnedSigner.REQUIRE);
+
+        assertEquals(null, skill.signer, "nothing signed, nothing to confirm");
+    }
+
+    private static Manifest.ManifestSkill unpinnedSkill(String repository) {
+        Manifest.ManifestSkill skill = new Manifest.ManifestSkill();
+        skill.name = "making-of";
+        skill.source = "oci://" + repository;
+        skill.version = "v1";
+        return skill;
+    }
+
+    private static Confirm answering(boolean answer, List<String> asked) {
+        return question -> {
+            asked.add(question);
+            return Optional.of(answer);
+        };
+    }
+
+    private static Confirm neverAsked() {
+        return question -> {
+            throw new AssertionError("asked when nothing needed confirming: " + question);
+        };
     }
 
     /** Publishes a skill with a real staging signature over its content, riding in the manifest. */
