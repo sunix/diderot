@@ -89,6 +89,36 @@ Both commands edit `diderot.yaml` by splicing lines rather than by rewriting it 
 so comments, key order, indentation and flow sequences like `targets: [claude]` all survive. They
 understand one shape — a block list under `skills:` — and refuse anything else rather than guessing.
 
+### Confirming who signed a skill
+
+When a registry skill is signed, `add` shows who signed it and asks before trusting them:
+
+```console
+$ diderot add oci://ghcr.io/sunix/skills/making-of
+  signed by   https://github.com/sunix/ai-skills/.github/workflows/push-skill-to-oci.yml@refs/heads/main
+  issuer      https://token.actions.githubusercontent.com
+  Trust this signer for making-of? [y/N] y
+locked making-of       ghcr.io/sunix/skills/making-of:latest@sha256:0f590367124b (tree:b22ca3276855…, signer ok)
+added making-of        oci://ghcr.io/sunix/skills/making-of (latest, signer pinned)
+```
+
+The accepted signer is pinned in `diderot.yaml`, and every later `update` and `install` must find
+that same signer. The rule is: **diderot asks whenever it would trust a signer the project has not
+trusted yet.**
+
+- `add` of a signed skill asks. Answering no adds nothing.
+- `update` asks when a pinned skill is now signed by somebody else. Yes re-pins it; no refuses as
+  before.
+- `update` offers to pin a signed skill that pins nobody yet (one declared with `--no-pin-signer`,
+  or before 0.5.0).
+- A signer that is already pinned is verified without a question. An unsigned skill is never asked
+  about.
+
+With no terminal (agents, CI), a question that must be answered becomes a refusal, never a silent
+skip. Read the identity it prints, then pass `--yes` to accept it, or `add --no-pin-signer` to
+declare the skill without a signer. The one exception is `update`'s offer to pin an unpinned skill:
+it only prints a note, so existing pipelines keep working.
+
 ### Versions and ranges
 
 For a registry source, `version:` is either a tag or a **semver range** resolved against the tags
