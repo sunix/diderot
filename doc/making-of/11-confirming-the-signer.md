@@ -122,7 +122,7 @@ meant "don't pin", which is also what "no" means, and the caller couldn't tell t
 three answers is what lets `add` treat them differently: `false` refuses because you said so,
 `empty` refuses and tells you about `--yes`.
 
-The interface has three implementations: `console()`, `yes()` for the flag, and `nobody()`. The
+The interface has three implementations: `console()`, `alwaysYes()` for the flag, and `nobody()`. The
 tests add their own lambdas, which is how they ask questions with no terminal involved.
 
 ### Where the question is asked
@@ -169,7 +169,7 @@ question, which is the more useful place for it.
 ```java
 Workspace workspace = new Workspace(root, new GitCli(GitCli.defaultCacheRoot()),
         new OrasClient(OrasClient.defaultCacheRoot()), out)
-        .confirmingWith(yesOption ? Confirm.yes() : Confirm.console());
+        .confirmingWith(yesOption ? Confirm.alwaysYes() : Confirm.console());
 
 LockedSkill locked = workspace.resolve(skill,
         noPinSigner ? UnpinnedSigner.IGNORE : UnpinnedSigner.REQUIRE);
@@ -472,7 +472,7 @@ fifteen signature tests against a real registry and sigstore staging, none skipp
 ## Following one `add` through the code
 
 From the top, for anyone opening this for the first time. `AddCommand.call` builds a `Workspace`,
-gives it a `Confirm` (`console()`, or `yes()` under `--yes`) and calls
+gives it a `Confirm` (`console()`, or `alwaysYes()` under `--yes`) and calls
 `resolve(skill, REQUIRE)`. `Workspace.resolve` dispatches on the source. A git skill never reaches
 any of this: git sources have no signatures. An OCI skill goes to `lockOciSkill`, which pulls the
 content into the cache, computes the tree digest, and hands content and digest to `trustSigner`.

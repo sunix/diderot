@@ -39,7 +39,7 @@ public class UpdateCommand implements Callable<Integer> {
         try {
             new Workspace(directory.toAbsolutePath().normalize(), new GitCli(GitCli.defaultCacheRoot()),
                     new OrasClient(OrasClient.defaultCacheRoot()), out)
-                    .confirmingWith(yesOption ? Confirm.yes() : Confirm.console())
+                    .confirmingWith(yesOption ? Confirm.alwaysYes() : Confirm.console())
                     .update();
             return 0;
         } catch (Exception e) {

@@ -107,7 +107,7 @@ public class AddCommand implements Callable<Integer> {
 
             Workspace workspace = new Workspace(root, new GitCli(GitCli.defaultCacheRoot()),
                     new OrasClient(OrasClient.defaultCacheRoot()), out)
-                    .confirmingWith(yesOption ? Confirm.yes() : Confirm.console());
+                    .confirmingWith(yesOption ? Confirm.alwaysYes() : Confirm.console());
 
             // Resolve before writing anything: whether this skill carries a signature is part of
             // what the entry should say, and it can only be known once the artifact is in hand.

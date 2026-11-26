@@ -23,7 +23,7 @@ public interface Confirm {
     Optional<Boolean> ask(String question);
 
     /** For {@code --yes}: the person already read what was printed and accepts it. */
-    static Confirm yes() {
+    static Confirm alwaysYes() {
         return question -> Optional.of(true);
     }
 
