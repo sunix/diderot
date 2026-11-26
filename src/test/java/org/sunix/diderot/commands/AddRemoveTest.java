@@ -151,11 +151,11 @@ class AddRemoveTest {
         AddCommand bare = new AddCommand();
         new CommandLine(bare).parseArgs("oci://ghcr.io/sunix/skills/making-of");
         assertFalse(bare.noPinSigner, "a signed skill is declared with its signer, no flag typed");
-        assertFalse(bare.yes, "and that signer is confirmed by a person unless --yes says otherwise");
+        assertFalse(bare.yesOption, "and that signer is confirmed by a person unless --yes says otherwise");
 
         AddCommand scripted = new AddCommand();
         new CommandLine(scripted).parseArgs("-y", "oci://ghcr.io/sunix/skills/making-of");
-        assertTrue(scripted.yes);
+        assertTrue(scripted.yesOption);
 
         AddCommand asked = new AddCommand();
         new CommandLine(asked).parseArgs("--pin-signer", "oci://ghcr.io/sunix/skills/making-of");

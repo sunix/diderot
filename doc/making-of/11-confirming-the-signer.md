@@ -169,7 +169,7 @@ question, which is the more useful place for it.
 ```java
 Workspace workspace = new Workspace(root, new GitCli(GitCli.defaultCacheRoot()),
         new OrasClient(OrasClient.defaultCacheRoot()), out)
-        .confirmingWith(yes ? Confirm.yes() : Confirm.console());
+        .confirmingWith(yesOption ? Confirm.yes() : Confirm.console());
 
 LockedSkill locked = workspace.resolve(skill,
         noPinSigner ? UnpinnedSigner.IGNORE : UnpinnedSigner.REQUIRE);

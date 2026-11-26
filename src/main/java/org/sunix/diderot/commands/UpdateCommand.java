@@ -28,7 +28,7 @@ public class UpdateCommand implements Callable<Integer> {
             description = "Trust the signers that are printed without being asked: a signed skill "
                     + "that pins nobody yet gets pinned, and a pinned skill now signed by somebody "
                     + "else gets re-pinned. Only for a script that has read those identities.")
-    boolean yes;
+    boolean yesOption;
 
     @Spec
     CommandSpec spec;
@@ -39,7 +39,7 @@ public class UpdateCommand implements Callable<Integer> {
         try {
             new Workspace(directory.toAbsolutePath().normalize(), new GitCli(GitCli.defaultCacheRoot()),
                     new OrasClient(OrasClient.defaultCacheRoot()), out)
-                    .confirmingWith(yes ? Confirm.yes() : Confirm.console())
+                    .confirmingWith(yesOption ? Confirm.yes() : Confirm.console())
                     .update();
             return 0;
         } catch (Exception e) {

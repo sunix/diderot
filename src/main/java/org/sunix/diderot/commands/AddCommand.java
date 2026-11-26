@@ -60,7 +60,7 @@ public class AddCommand implements Callable<Integer> {
     @Option(names = { "-y", "--yes" },
             description = "Trust the signer that is printed without being asked. Without a terminal "
                     + "(agents, CI), adding a signed skill needs this or --no-pin-signer.")
-    boolean yes;
+    boolean yesOption;
 
     @Option(names = "--no-pin-signer",
             description = "Declare the skill without recording its signer, so later resolutions "
@@ -107,7 +107,7 @@ public class AddCommand implements Callable<Integer> {
 
             Workspace workspace = new Workspace(root, new GitCli(GitCli.defaultCacheRoot()),
                     new OrasClient(OrasClient.defaultCacheRoot()), out)
-                    .confirmingWith(yes ? Confirm.yes() : Confirm.console());
+                    .confirmingWith(yesOption ? Confirm.yes() : Confirm.console());
 
             // Resolve before writing anything: whether this skill carries a signature is part of
             // what the entry should say, and it can only be known once the artifact is in hand.
