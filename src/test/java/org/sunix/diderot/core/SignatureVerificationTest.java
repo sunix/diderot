@@ -15,6 +15,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -181,6 +184,162 @@ class SignatureVerificationTest {
 
         assertEquals(null, lock.skills.get(0).signer, "nothing pinned, nothing recorded");
         assertFalse(output.toString().contains("signer ok"));
+    }
+
+    // --- #63: a signer the project has not trusted yet is shown and has to be confirmed -------
+
+    @Test
+    void addShowsTheSignerAndPinsItOnceConfirmed() throws Exception {
+        String repository = publishSigned("add-confirmed");
+        Manifest.ManifestSkill skill = unpinnedSkill(repository);
+        StringWriter output = new StringWriter();
+        List<String> asked = new ArrayList<>();
+
+        LockFile.LockedSkill locked = workspace(tmp.resolve("add-confirmed-consumer"), output)
+                .confirmingWith(answering(true, asked))
+                .resolve(skill, Workspace.UnpinnedSigner.REQUIRE);
+
+        assertEquals(List.of("  Trust this signer for making-of?"), asked);
+        assertTrue(output.toString().contains("signed by   " + IDENTITY),
+                "the identity is on screen before the question: " + output);
+        assertEquals(IDENTITY, skill.signer.identity, "accepted means pinned in the entry add writes");
+        assertEquals(ISSUER, skill.signer.issuer);
+        assertEquals(IDENTITY, locked.signer.identity, "and verified, so the lock says so");
+    }
+
+    @Test
+    void addRefusesWhenTheSignerIsDeclined() throws Exception {
+        String repository = publishSigned("add-declined");
+        Manifest.ManifestSkill skill = unpinnedSkill(repository);
+
+        IOException refusal = assertThrows(IOException.class,
+                () -> workspace(tmp.resolve("add-declined-consumer"), new StringWriter())
+                        .confirmingWith(answering(false, new ArrayList<>()))
+                        .resolve(skill, Workspace.UnpinnedSigner.REQUIRE));
+
+        assertTrue(refusal.getMessage().contains("not trusted"), refusal.getMessage());
+        assertEquals(null, skill.signer);
+    }
+
+    @Test
+    void addWithNoTerminalRefusesAndSaysHowToProceed() throws Exception {
+        String repository = publishSigned("add-headless");
+        Manifest.ManifestSkill skill = unpinnedSkill(repository);
+
+        IOException refusal = assertThrows(IOException.class,
+                () -> workspace(tmp.resolve("add-headless-consumer"), new StringWriter())
+                        .confirmingWith(Confirm.nobody())
+                        .resolve(skill, Workspace.UnpinnedSigner.REQUIRE));
+
+        assertTrue(refusal.getMessage().contains("--yes"), refusal.getMessage());
+        assertTrue(refusal.getMessage().contains("--no-pin-signer"), refusal.getMessage());
+    }
+
+    @Test
+    void anUnsignedSkillIsAddedWithoutAQuestion() throws Exception {
+        String repository = publishUnsigned("add-unsigned");
+        Manifest.ManifestSkill skill = unpinnedSkill(repository);
+
+        workspace(tmp.resolve("add-unsigned-consumer"), new StringWriter())
+                .confirmingWith(neverAsked())
+                .resolve(skill, Workspace.UnpinnedSigner.REQUIRE);
+
+        assertEquals(null, skill.signer, "nothing signed, nothing to confirm");
+    }
+
+    @Test
+    void updateDoesNotAskAboutASignerAlreadyPinned() throws Exception {
+        String repository = publishSigned("update-same");
+        Path project = project("update-same-consumer", repository, IDENTITY, ISSUER);
+        String manifest = Files.readString(project.resolve("diderot.yaml"));
+
+        workspace(project, new StringWriter()).confirmingWith(neverAsked()).update();
+
+        assertEquals(manifest, Files.readString(project.resolve("diderot.yaml")));
+    }
+
+    @Test
+    void updateOffersToPinASignedSkillThatPinsNobody() throws Exception {
+        String repository = publishSigned("update-offer");
+        Path project = project("update-offer-consumer", repository, null, null);
+        List<String> asked = new ArrayList<>();
+
+        LockFile lock = workspace(project, new StringWriter())
+                .confirmingWith(answering(true, asked)).update();
+
+        assertEquals(List.of("  Pin this signer for making-of in diderot.yaml?"), asked);
+        assertEquals(manifestYaml(repository, IDENTITY, ISSUER),
+                Files.readString(project.resolve("diderot.yaml")),
+                "the pin lands in the entry, and only there");
+        assertEquals(IDENTITY, lock.skills.get(0).signer.identity);
+    }
+
+    @Test
+    void updateWithNoTerminalLeavesAnUnpinnedSkillAsItWas() throws Exception {
+        String repository = publishSigned("update-offer-headless");
+        Path project = project("update-offer-headless-consumer", repository, null, null);
+        StringWriter output = new StringWriter();
+
+        LockFile lock = workspace(project, output).confirmingWith(Confirm.nobody()).update();
+
+        assertEquals(manifestYaml(repository, null, null), Files.readString(project.resolve("diderot.yaml")),
+                "it never pinned before, so a pipeline running update is not broken by this");
+        assertEquals(null, lock.skills.get(0).signer);
+        assertTrue(output.toString().contains("update --yes"), output.toString());
+    }
+
+    @Test
+    void updateAsksBeforeTrustingANewSignerAndRePinsOnYes() throws Exception {
+        String repository = publishSigned("update-changed");
+        Path project = project("update-changed-consumer", repository, PUBLISHER, ISSUER);
+        StringWriter output = new StringWriter();
+        List<String> asked = new ArrayList<>();
+
+        LockFile lock = workspace(project, output).confirmingWith(answering(true, asked)).update();
+
+        assertEquals(List.of("  Trust the new signer for making-of?"), asked);
+        assertTrue(output.toString().contains("pinned      " + PUBLISHER), "what was trusted before: " + output);
+        assertTrue(output.toString().contains("signed by   " + IDENTITY), "and who signs it now: " + output);
+        assertEquals(manifestYaml(repository, IDENTITY, ISSUER), Files.readString(project.resolve("diderot.yaml")));
+        assertEquals(IDENTITY, lock.skills.get(0).signer.identity);
+    }
+
+    @Test
+    void updateKeepsRefusingANewSignerThatIsDeclinedOrCannotBeAskedAbout() throws Exception {
+        String repository = publishSigned("update-changed-no");
+        Path project = project("update-changed-no-consumer", repository, PUBLISHER, ISSUER);
+        String manifest = Files.readString(project.resolve("diderot.yaml"));
+
+        IOException declined = assertThrows(IOException.class, () -> workspace(project, new StringWriter())
+                .confirmingWith(answering(false, new ArrayList<>())).update());
+        IOException headless = assertThrows(IOException.class, () -> workspace(project, new StringWriter())
+                .confirmingWith(Confirm.nobody()).update());
+
+        assertTrue(declined.getMessage().contains("not by the expected signer"), declined.getMessage());
+        assertTrue(headless.getMessage().contains("--yes"), headless.getMessage());
+        assertEquals(manifest, Files.readString(project.resolve("diderot.yaml")));
+        assertFalse(Files.exists(project.resolve("diderot.lock")), "nothing was written");
+    }
+
+    private static Manifest.ManifestSkill unpinnedSkill(String repository) {
+        Manifest.ManifestSkill skill = new Manifest.ManifestSkill();
+        skill.name = "making-of";
+        skill.source = "oci://" + repository;
+        skill.version = "v1";
+        return skill;
+    }
+
+    private static Confirm answering(boolean answer, List<String> asked) {
+        return question -> {
+            asked.add(question);
+            return Optional.of(answer);
+        };
+    }
+
+    private static Confirm neverAsked() {
+        return question -> {
+            throw new AssertionError("asked when nothing needed confirming: " + question);
+        };
     }
 
     /** Publishes a skill with a real staging signature over its content, riding in the manifest. */

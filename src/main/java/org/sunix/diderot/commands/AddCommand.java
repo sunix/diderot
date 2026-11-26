@@ -6,16 +6,16 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Callable;
 
+import org.sunix.diderot.core.Confirm;
 import org.sunix.diderot.core.LockFile.LockedSkill;
 import org.sunix.diderot.core.Manifest;
 import org.sunix.diderot.core.Manifest.ManifestSkill;
 import org.sunix.diderot.core.ManifestEditor;
-import org.sunix.diderot.core.Signer;
 import org.sunix.diderot.core.SourceRef;
 import org.sunix.diderot.core.Workspace;
+import org.sunix.diderot.core.Workspace.UnpinnedSigner;
 import org.sunix.diderot.git.GitCli;
 import org.sunix.diderot.oci.OrasClient;
-import org.sunix.diderot.oci.Signing;
 
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -53,13 +53,20 @@ public class AddCommand implements Callable<Integer> {
      */
     @Option(names = "--pin-signer",
             description = "Record the signer of a signed skill in diderot.yaml. This is already "
-                    + "what happens; the flag is here for scripts that would rather say so.")
+                    + "what happens once you confirm it; the flag is here for scripts that would "
+                    + "rather say so.")
     boolean pinSigner;
+
+    @Option(names = { "-y", "--yes" },
+            description = "Trust the signer that is printed without being asked. Without a terminal "
+                    + "(agents, CI), adding a signed skill needs this or --no-pin-signer.")
+    boolean yesOption;
 
     @Option(names = "--no-pin-signer",
             description = "Declare the skill without recording its signer, so later resolutions "
-                    + "accept whoever signed it. By default a signed skill is pinned to the "
-                    + "identity that signed it, and every later resolution has to find that one.")
+                    + "accept whoever signed it. By default you are shown who signed a signed "
+                    + "skill and asked to trust them; once trusted, every later resolution has to "
+                    + "find that same signer.")
     boolean noPinSigner;
 
     @Spec
@@ -98,13 +105,16 @@ public class AddCommand implements Callable<Integer> {
                     ? version
                     : ref.kind() == SourceRef.Kind.OCI ? "latest" : "HEAD";
 
-            OrasClient oras = new OrasClient(OrasClient.defaultCacheRoot());
-            Workspace workspace = new Workspace(root, new GitCli(GitCli.defaultCacheRoot()), oras, out);
+            Workspace workspace = new Workspace(root, new GitCli(GitCli.defaultCacheRoot()),
+                    new OrasClient(OrasClient.defaultCacheRoot()), out)
+                    .confirmingWith(yesOption ? Confirm.alwaysYes() : Confirm.console());
 
             // Resolve before writing anything: whether this skill carries a signature is part of
             // what the entry should say, and it can only be known once the artifact is in hand.
-            LockedSkill locked = workspace.resolve(skill);
-            skill.signer = signerToPin(ref, locked, oras, out);
+            // A signed skill's signer is shown and has to be confirmed here (#63); once accepted it
+            // is set on `skill`, already verified against the bytes that were just pulled.
+            LockedSkill locked = workspace.resolve(skill,
+                    noPinSigner ? UnpinnedSigner.IGNORE : UnpinnedSigner.REQUIRE);
 
             // Then write the manifest, and put the file back exactly as it was if anything after
             // this fails rather than leaving a declaration nothing can resolve.
@@ -117,13 +127,8 @@ public class AddCommand implements Callable<Integer> {
                 text += "\ntargets: [" + String.join(", ", new Manifest().targets) + "]\n";
             }
             Files.writeString(manifestPath, text);
-            out.printf("added %-20s %s (%s)%n", skillName, source, skill.version);
-
-            // With a signer pinned, resolve once more: the second pass is the one that verifies,
-            // so the signature is checked here rather than at the next command somebody runs.
-            if (skill.signer != null) {
-                locked = workspace.resolve(skill);
-            }
+            out.printf("added %-20s %s (%s%s)%n", skillName, source, skill.version,
+                    skill.signer == null ? "" : ", signer pinned");
             workspace.putLockEntry(locked);
 
             List<String> unlocked = workspace.unlockedSkills();
@@ -138,39 +143,6 @@ public class AddCommand implements Callable<Integer> {
             spec.commandLine().getErr().println("error: " + e.getMessage());
             return 1;
         }
-    }
-
-
-    /**
-     * Who signed the skill that was just resolved, which is what the entry will demand from here on.
-     *
-     * <p>This asked, at first, on the argument part six makes: an identity accepted because it went
-     * past somebody's eyes is worth more than one copied from a web page, and a string copied from a
-     * web page is a string an attacker can supply. The argument holds against the web page and not
-     * against the prompt. Nothing asks before writing the resolved digest into diderot.lock, and
-     * pinning a signer is the same act — recording what was true at declaration time so that a
-     * change becomes visible later. That record is worth the same whether or not the identity was
-     * read. And the question had no answer at all where it mattered most: an agent or a CI job has
-     * no terminal, so the old default there was an unverified project that looked exactly like a
-     * verified one.
-     *
-     * <p>An unsigned skill still says nothing: most of the ecosystem is unsigned, and a warning on
-     * every add is a warning nobody reads.
-     */
-    private Signer signerToPin(SourceRef ref, LockedSkill locked, OrasClient oras, PrintWriter out) {
-        if (ref.kind() != SourceRef.Kind.OCI || noPinSigner) {
-            return null;
-        }
-        Signer signer = oras.fetchSignature(ref.url(), locked.resolved)
-                .map(Signing::identityOf)
-                .orElse(null);
-        if (signer == null) {
-            return null;
-        }
-        out.printf("  signed by   %s%n", signer.identity);
-        out.printf("  issuer      %s%n", signer.issuer);
-        out.printf("  pinned      in diderot.yaml — --no-pin-signer declares it without that%n");
-        return signer;
     }
 
     /** `oci://ghcr.io/sunix/skills/making-of` and `git+https://…#skills/doc/making-of` both give `making-of`. */

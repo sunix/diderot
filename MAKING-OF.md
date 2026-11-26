@@ -5,7 +5,7 @@ and the implementation work — kept here for new contributors, or anyone curiou
 together. Written in a blog-ish style rather than as formal docs, split into one post per
 chapter so each stays a readable size. Updated on request as the work progresses.*
 
-*Last updated: 2026-08-27.*
+*Last updated: 2026-11-24.*
 
 ## Posts
 
@@ -75,3 +75,10 @@ chapter so each stays a readable size. Updated on request as the work progresses
     hypothesis down from a release to four minutes, a test that listed what it tolerated instead of
     what it refuses, a release that shipped with no binaries again — and a skill on ghcr anyone can
     verify with six lines of `diderot.yaml`.
+11. [Asking before trusting a signer](doc/making-of/11-confirming-the-signer.md) — the question parts
+    six and seven designed, shipped in #59 and removed in #61, comes back with an answer to why it
+    was removed: with no terminal, a confirmation nobody can give is a refusal that names `--yes`,
+    never a skip. `add` asks, `update` asks when somebody else signs a pinned skill and re-pins on
+    yes, and offers a pin to skills that have none. Three answers instead of two, verifying a signer
+    against its own identity before anyone is asked to trust it, writing the pin only after every
+    skill resolved, and a claim about `System.console()` that turned out true only on JDK 22 to 24.
